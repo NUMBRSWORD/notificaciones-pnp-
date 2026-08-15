@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Notificación de Imputación PNP</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header id="topbar" class="hidden">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-badge">PNP</span>
+      <span class="brand-title">Notificación de Imputación</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-view="casos">Casos</button>
+      <button class="tab-btn" data-view="efectivos">Efectivos</button>
+    </nav>
+    <div class="user-box">
+      <span id="userEmail"></span>
+      <span id="userRole" class="badge"></span>
+      <button id="btnLogout" class="btn-ghost">Salir</button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- LOGIN -->
+  <section id="view-login" class="view center-view">
+    <form id="loginForm" class="card login-card">
+      <div class="brand center">
+        <span class="brand-badge lg">PNP</span>
+        <h1>Ingresar</h1>
+        <p class="muted">Ingrese su correo (o su CIP) y clave.</p>
+      </div>
+      <label>Correo o CIP
+        <input type="text" id="loginEmail" required autocomplete="username" />
+      </label>
+      <label>Clave
+        <input type="password" id="loginPassword" required autocomplete="current-password" />
+      </label>
+      <p id="loginError" class="error hidden"></p>
+      <button type="submit" class="btn-primary">Ingresar</button>
+      <p class="muted small" style="margin-top:14px">¿No tiene cuenta? <a href="#" id="linkMostrarRegistro">Regístrese aquí</a>.</p>
+    </form>
+  </section>
+
+  <!-- REGISTRO -->
+  <section id="view-registro" class="view center-view hidden">
+    <form id="registroForm" class="card login-card">
+      <div class="brand center">
+        <span class="brand-badge lg">PNP</span>
+        <h1>Crear cuenta</h1>
+        <p class="muted">Su cuenta iniciará con rol "viewer"; un administrador debe darle permisos para registrar casos.</p>
+      </div>
+      <label>Correo
+        <input type="email" id="regEmail" required autocomplete="username" />
+      </label>
+      <label>Clave
+        <input type="password" id="regPassword" required autocomplete="new-password" minlength="6" />
+      </label>
+      <p id="registroError" class="error hidden"></p>
+      <p id="registroOk" class="muted small hidden"></p>
+      <button type="submit" class="btn-primary">Crear cuenta</button>
+      <p class="muted small" style="margin-top:14px"><a href="#" id="linkMostrarLogin">Volver a ingresar</a>.</p>
+    </form>
+  </section>
+
+  <!-- DASHBOARD: CASOS -->
+  <section id="view-dashboard" class="view hidden">
+    <div class="view-header">
+      <h2>Casos</h2>
+      <div class="view-actions">
+        <input id="searchCasos" type="search" placeholder="Buscar por nombre, apellido o código..." />
+        <label class="inline-filter">Desde <input id="filtroDesde" type="date" /></label>
+        <label class="inline-filter">Hasta <input id="filtroHasta" type="date" /></label>
+        <button id="btnLimpiarFiltroFecha" class="btn-ghost">Limpiar fechas</button>
+        <button id="btnExportarExcel" class="btn-secondary">Exportar a Excel</button>
+        <button id="btnNuevoCaso" class="btn-primary admin-only hidden">+ Nuevo caso</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Grado</th>
+            <th>Apellidos y nombres</th>
+            <th>Fecha del hecho</th>
+            <th>Código infracción</th>
+            <th>Oficial que constató</th>
+            <th>Notificado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="casosTableBody"></tbody>
+      </table>
+      <p id="casosEmpty" class="muted hidden">No hay casos registrados.</p>
+    </div>
+  </section>
+
+  <!-- EFECTIVOS -->
+  <section id="view-efectivos" class="view hidden">
+    <div class="view-header">
+      <h2>Efectivos (CIP / DNI)</h2>
+      <div class="view-actions">
+        <input id="searchEfectivos" type="search" placeholder="Buscar por CIP, DNI o nombre..." />
+        <button id="btnNuevoEfectivo" class="btn-primary admin-only hidden">+ Nuevo efectivo</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Grado</th>
+            <th>Apellidos y nombres</th>
+            <th>CIP</th>
+            <th>DNI</th>
+          </tr>
+        </thead>
+        <tbody id="efectivosTableBody"></tbody>
+      </table>
+      <p id="efectivosEmpty" class="muted hidden">Sin resultados.</p>
+    </div>
+  </section>
+
+  <!-- DETALLE / EDICION CASO -->
+  <section id="view-caso-detail" class="view hidden">
+    <div class="view-header">
+      <button id="btnVolverDashboard" class="btn-ghost">&larr; Volver</button>
+    </div>
+    <div id="casoDetailContent"></div>
+  </section>
+
+</main>
+
+<!-- MODAL NUEVO CASO -->
+<div id="modalNuevoCaso" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Nuevo caso</h3>
+      <button id="btnCerrarModal" class="btn-ghost">✕</button>
+    </div>
+    <form id="casoForm" class="modal-body">
+      <div class="lookup-row">
+        <label class="grow">Buscar efectivo por CIP o DNI
+          <input type="text" id="lookupCipDni" placeholder="Ej. 337635 o 40482528" />
+        </label>
+        <button type="button" id="btnBuscarEfectivo" class="btn-secondary">Buscar</button>
+      </div>
+      <p id="lookupResult" class="muted small hidden"></p>
+
+      <div class="grid-2">
+        <label>Grado
+          <input type="text" id="fGrado" required />
+        </label>
+        <label>Código de infracción (Anexo I — Leve)
+          <input type="text" id="fCodigoInfraccion" list="listaAnexoI" placeholder="Ej. L21" required />
+          <datalist id="listaAnexoI"></datalist>
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>Apellidos
+          <input type="text" id="fApellidos" required />
+        </label>
+        <label>Nombres
+          <input type="text" id="fNombres" required />
+        </label>
+      </div>
+      <p id="infraccionPreview" class="muted small hidden"></p>
+
+      <label>Fecha del hecho
+        <input type="date" id="fFechaHecho" required />
+      </label>
+      <label>Descripción del hecho constatado
+        <textarea id="fDescripcionHecho" rows="5" required placeholder="Describa libremente lo constatado: qué ocurrió, cuándo, dónde y cómo se comprobó. Este texto se usará tal cual en el documento de imputación."></textarea>
+      </label>
+      <label>Unidad / Sub-unidad del investigado
+        <input type="text" id="fUnidad" value="DIVOPUS 3-CPNP VENTANILLA." required />
+      </label>
+      <label>Oficial que constató (superior que firma la imputación)
+        <input type="text" id="fOficialConstato" required placeholder="Ej. TNTE PNP ZEGOBIA QUISPE" />
+      </label>
+      <label>Archivo de sustento (opcional: foto, PDF, parte, etc.)
+        <input type="file" id="fArchivoSustento" accept="application/pdf,image/*" />
+      </label>
+
+      <p id="casoFormError" class="error hidden"></p>
+      <div class="modal-actions">
+        <button type="button" id="btnCancelarCaso" class="btn-ghost">Cancelar</button>
+        <button type="submit" class="btn-primary">Guardar caso</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL NUEVO EFECTIVO -->
+<div id="modalNuevoEfectivo" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Nuevo efectivo</h3>
+      <button id="btnCerrarModalEfectivo" class="btn-ghost">✕</button>
+    </div>
+    <form id="efectivoForm" class="modal-body">
+      <div class="grid-2">
+        <label>Grado
+          <input type="text" id="efGrado" required />
+        </label>
+        <label>CIP
+          <input type="text" id="efCip" required />
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>Apellidos y nombres
+          <input type="text" id="efApellidosNombres" required />
+        </label>
+        <label>DNI
+          <input type="text" id="efDni" required />
+        </label>
+      </div>
+      <p id="efectivoFormError" class="error hidden"></p>
+      <div class="modal-actions">
+        <button type="button" id="btnCancelarEfectivo" class="btn-ghost">Cancelar</button>
+        <button type="submit" class="btn-primary">Guardar efectivo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
