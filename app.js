@@ -284,15 +284,21 @@ $("registroForm").addEventListener("submit", async (e) => {
   okEl.classList.add("hidden");
   const email = $("regEmail").value.trim();
   const password = $("regPassword").value;
-  const { error } = await supabase.auth.signUp({ email, password });
-  if (error) {
-    errEl.textContent = error.message;
-    errEl.classList.remove("hidden");
-    return;
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      errEl.textContent = error.message;
+      errEl.classList.remove("hidden");
+      return;
+    }
+    okEl.textContent = "Cuenta creada. Ya puede ingresar (si su proyecto exige confirmar el correo, revise su bandeja).";
+    okEl.classList.remove("hidden");
+    $("registroForm").reset();
+  } finally {
+    submitBtn.disabled = false;
   }
-  okEl.textContent = "Cuenta creada. Ya puede ingresar (si su proyecto exige confirmar el correo, revise su bandeja).";
-  okEl.classList.remove("hidden");
-  $("registroForm").reset();
 });
 
 // ---------- Casos ----------
