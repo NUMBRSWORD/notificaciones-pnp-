@@ -79,8 +79,17 @@
         <label class="inline-filter">Hasta <input id="filtroHasta" type="date" /></label>
         <button id="btnLimpiarFiltroFecha" class="btn-ghost">Limpiar fechas</button>
         <button id="btnExportarExcel" class="btn-secondary">Exportar a Excel</button>
+        <button id="btnResumenEjecutivo" class="btn-secondary">✨ Resumen ejecutivo IA</button>
         <button id="btnNuevoCaso" class="btn-primary admin-only hidden">+ Nuevo caso</button>
       </div>
+    </div>
+    <div id="resumenEjecutivoPanel" class="detail-card hidden" style="margin-bottom:16px">
+      <div class="detail-card-header">
+        <h3>Resumen ejecutivo (IA)</h3>
+        <button type="button" id="btnCerrarResumenEjecutivo" class="btn-ghost">✕</button>
+      </div>
+      <p id="resumenEjecutivoStatus" class="muted small hidden"></p>
+      <p id="resumenEjecutivoContenido" style="white-space:pre-wrap"></p>
     </div>
     <div class="table-wrap">
       <table>
@@ -177,6 +186,12 @@
       <label>Descripción del hecho constatado
         <textarea id="fDescripcionHecho" rows="5" required placeholder="Describa libremente lo constatado: qué ocurrió, cuándo, dónde y cómo se comprobó. Este texto se usará tal cual en el documento de imputación."></textarea>
       </label>
+      <div class="modal-actions" style="justify-content:flex-start; gap:8px; margin:-8px 0 4px">
+        <button type="button" id="btnRedactarHechoIA" class="btn-secondary" disabled title="Suba un archivo de sustento primero">✨ Redactar con IA (desde el sustento)</button>
+        <button type="button" id="btnSugerirCodigoIA" class="btn-secondary">✨ Sugerir código con IA</button>
+      </div>
+      <p id="hechoIAStatus" class="muted small hidden"></p>
+      <p id="codigoIASugerencia" class="muted small hidden"></p>
       <label>Unidad / Sub-unidad del investigado
         <input type="text" id="fUnidad" value="DIVOPUS 3-CPNP VENTANILLA." required />
       </label>
@@ -227,6 +242,19 @@
       </div>
     </form>
   </div>
+</div>
+
+<button id="btnAbrirAsistente" class="asistente-fab" title="Asistente de consulta">💬</button>
+<div id="asistenteWidget" class="asistente-widget hidden">
+  <div class="asistente-header">
+    <span>Asistente de consulta</span>
+    <button id="btnCerrarAsistente" class="btn-ghost">✕</button>
+  </div>
+  <div id="asistenteMensajes" class="asistente-mensajes"></div>
+  <form id="asistenteForm" class="asistente-form">
+    <input type="text" id="asistenteInput" placeholder="Escriba su pregunta..." autocomplete="off" />
+    <button type="submit" class="btn-primary">Enviar</button>
+  </form>
 </div>
 
 <script type="module" src="app.js"></script>

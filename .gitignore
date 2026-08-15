@@ -2,3 +2,4 @@
 node_modules/
 devserver.js
 .claude/
+migrar_efectivos.sql
