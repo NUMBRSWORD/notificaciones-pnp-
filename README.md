@@ -2,31 +2,20 @@
 
 Genera el documento oficial **"Inicio de Imputación de Infracción Leve"** (cargo de Notificación y Entrega de Acto Administrativo Disciplinario, PNP – Ley N° 30714) para **cualquier hecho leve constatado**, no solo ausencia/reincorporación. El oficial describe libremente lo ocurrido; el sistema arma el documento con los datos del investigado, la infracción (Anexo I) y el superior que lo notifica.
 
-Es un proyecto **totalmente independiente** de `moral-y-disciplina`: código propio, y en Supabase usa su propio esquema (`imputacion_pnp`) dentro del mismo proyecto "MORAL Y DISCIPLINA" — no toca `notas_informativas`, `efectivos`, `expedientes` ni `profiles` de esa otra app.
-
-## Antes de usarlo: 1 paso manual obligatorio en Supabase
-
-Las tablas y políticas de seguridad ya están creadas (esquema `imputacion_pnp`), pero Supabase solo expone por API los esquemas que uno marca explícitamente como "Exposed schemas". Hazlo una sola vez:
-
-1. Entra al [dashboard del proyecto MORAL Y DISCIPLINA](https://supabase.com/dashboard/project/tndjulaitywtoocqeeiy/settings/api).
-2. Ve a **Project Settings → API → Exposed schemas**.
-3. Agrega `imputacion_pnp` a la lista (debe quedar algo como `public, imputacion_pnp`, sin borrar `public`).
-4. Guarda.
-
-Sin este paso la app cargará pero dará error "schema not found" al iniciar sesión.
+Es un proyecto **totalmente independiente** de `moral-y-disciplina`: código propio, cuenta y proyecto de Supabase propios (creados con `supabase_setup.sql`) — no comparte nada con esa otra app, ni siquiera la infraestructura.
 
 ## Primer usuario administrador
 
 1. Abre la app y usa **"Regístrese aquí"** para crear tu cuenta (nace con rol `viewer`, solo puede ver, no crear casos).
-2. En el dashboard de Supabase, ve a **Table Editor → esquema `imputacion_pnp` → tabla `perfiles`**, busca tu fila y cambia `role` a `admin`.
+2. En el dashboard de Supabase, ve a **Table Editor → esquema `public` → tabla `perfiles`**, busca tu fila y cambia `role` a `admin`.
 3. Vuelve a entrar a la app (cierra sesión y entra de nuevo) — ya podrás crear casos, efectivos, etc.
 4. Desde ahí, para dar de alta a otros oficiales, cada uno se registra y tú (admin) le cambias el rol igual que en el paso 2.
 
 ## Cargar el catálogo de Efectivos
 
-Esta app no comparte el catálogo de `efectivos` de `moral-y-disciplina` (son esquemas separados). Empieza vacío. Un admin puede:
+Esta app no comparte el catálogo de `efectivos` de `moral-y-disciplina` (son proyectos distintos). Empieza vacío. Un admin puede:
 - Agregarlos uno por uno con el botón **"+ Nuevo efectivo"** en la pestaña Efectivos, o
-- Insertarlos en bloque directamente en Supabase (Table Editor → `imputacion_pnp.efectivos`, botón "Insert" → "Import data from CSV") si tienes un CSV con columnas `grado, cip, dni, apellidos_nombres`.
+- Insertarlos en bloque directamente en Supabase (Table Editor → `efectivos`, botón "Insert" → "Import data from CSV") si tienes un CSV con columnas `grado, cip, dni, apellidos_nombres`.
 
 Como mínimo, deben estar registrados los oficiales que van a figurar como **"Oficial que constató"** en los casos (para que el sistema pueda completar automáticamente su CIP y armar el sello de la notificación).
 
