@@ -3,11 +3,12 @@ import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.mjs";
 import { createWorker } from "https://esm.sh/tesseract.js@5.1.1";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SCHEMA } from "./config.js";
-import { generarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato, tokens } from "./lib/imputacion.js";
-import { generarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo } from "./lib/actaNoDescargo.js";
-import { generarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault } from "./lib/ordenSancion.js";
+import { renderizarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato, tokens } from "./lib/imputacion.js";
+import { renderizarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo } from "./lib/actaNoDescargo.js";
+import { renderizarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault } from "./lib/ordenSancion.js";
 import { getInfraccion, normalizarCodigoInfraccion, ANEXO_I } from "./lib/anexoI.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
+import saveAs from "https://esm.sh/file-saver@2.0.5";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -104,6 +105,33 @@ function formatFechaHora(fecha, hora) {
   const f = formatDate(fecha);
   if (f === "-") return "-";
   return hora ? `${f} ${hora.slice(0, 5)}` : f;
+}
+
+// Archiva en Storage y registra en documentos_generados cada versión de un
+// documento generado -- "mejor esfuerzo": si falla (red, permisos), se deja
+// constancia en consola pero NUNCA bloquea la descarga real del oficial,
+// que ya ocurrió antes de llamar a esta función.
+async function registrarVersionDocumento(casoId, tipo, blob, nombreArchivo) {
+  try {
+    const path = `${casoId}/generados/${tipo}_${Date.now()}_${nombreArchivo}`;
+    const { error: upErr } = await supabase.storage.from("casos-imputacion-pnp").upload(path, blob);
+    if (upErr) { console.error("No se pudo archivar la versión del documento:", upErr); return; }
+    const { error } = await supabase.from("documentos_generados").insert({
+      caso_id: casoId,
+      tipo,
+      archivo_path: path,
+      archivo_nombre: nombreArchivo,
+      generado_por: state.session.user.id,
+      generado_por_email: state.email,
+    });
+    if (error) console.error("No se pudo registrar la versión del documento:", error);
+  } catch (err) {
+    console.error("No se pudo archivar la versión del documento:", err);
+  }
+}
+
+function nombreArchivoDocumento(prefijo, caso) {
+  return `${prefijo} - ${(caso.grado || "").trim()} ${(caso.apellidos || "").trim()} ${(caso.nombres || "").trim()}.docx`.replace(/\s+/g, " ").trim();
 }
 
 // ---------- View switching ----------
@@ -378,7 +406,10 @@ async function handleDescargarImputacion(caso, btnEl) {
   const textoOriginal = btnEl ? btnEl.textContent : null;
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Generando..."; }
   try {
-    await generarImputacionDocx(caso, state.efectivos);
+    const blob = await renderizarImputacionDocx(caso, state.efectivos);
+    const nombreArchivo = nombreArchivoDocumento("IMPUTACION LEVE", caso);
+    saveAs(blob, nombreArchivo);
+    registrarVersionDocumento(caso.id, "imputacion", blob, nombreArchivo);
     // Se registra la primera vez que se genera/descarga: es la fecha que se
     // usa como notificación al investigado para contar el plazo de descargo.
     if (!caso.imputacion_generada_at) {
@@ -732,6 +763,19 @@ async function renderCasoDetail(caso) {
   const puedeSancion = puedeGenerarOrdenSancion(caso, state.efectivos);
   const opcionesSancion = opcionesTercio(caso.codigo_infraccion) || [];
 
+  const { data: versionesDocs } = await supabase
+    .from("documentos_generados")
+    .select("*")
+    .eq("caso_id", caso.id)
+    .order("generado_at", { ascending: false });
+  const TIPO_DOCUMENTO_LABEL = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción" };
+  const versionesHtml = versionesDocs?.length
+    ? (await Promise.all(versionesDocs.map(async (v) => {
+        const link = await fileLinkHtml("casos-imputacion-pnp", v.archivo_path, v.archivo_nombre);
+        return `<div class="detail-field"><div class="label">${escapeHtml(TIPO_DOCUMENTO_LABEL[v.tipo] || v.tipo)} — ${formatFechaHora(v.generado_at.slice(0, 10), v.generado_at.slice(11, 16))}</div><div class="value">${link} <span class="muted small">(${escapeHtml(v.generado_por_email || "-")})</span></div></div>`;
+      }))).join("")
+    : "";
+
   $("casoDetailContent").innerHTML = `
     <div class="detail-card">
       <div class="detail-card-header">
@@ -854,6 +898,14 @@ async function renderCasoDetail(caso) {
       `}
     </div>
     ` : ""}
+
+    ${versionesDocs?.length ? `
+    <div class="detail-card">
+      <h3>Versiones generadas</h3>
+      <p class="muted small">Cada vez que se genera un documento queda archivada esta copia exacta, aunque después se regenere con datos distintos.</p>
+      <div class="detail-grid">${versionesHtml}</div>
+    </div>
+    ` : ""}
   `;
 
   $("btnDescargarImputacion")?.addEventListener("click", async (e) => {
@@ -894,7 +946,10 @@ async function handleDescargarActaNoDescargo(caso, btnEl) {
   const textoOriginal = btnEl ? btnEl.textContent : null;
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Generando..."; }
   try {
-    await generarActaNoDescargoDocx(caso, state.efectivos);
+    const blob = await renderizarActaNoDescargoDocx(caso, state.efectivos);
+    const nombreArchivo = nombreArchivoDocumento("ACTA NO DESCARGO", caso);
+    saveAs(blob, nombreArchivo);
+    registrarVersionDocumento(caso.id, "acta_no_descargo", blob, nombreArchivo);
     if (!caso.acta_no_descargo_generada_at) {
       const ahora = new Date().toISOString();
       const { error } = await supabase.from("casos").update({ acta_no_descargo_generada_at: ahora }).eq("id", caso.id);
@@ -1120,7 +1175,10 @@ async function submitSancion(e, caso) {
   submitBtn.disabled = true;
   submitBtn.textContent = "Generando...";
   try {
-    await generarOrdenSancionDocx(caso, state.efectivos, { tercioValue, analisisTexto, descargoTexto });
+    const blob = await renderizarOrdenSancionDocx(caso, state.efectivos, { tercioValue, analisisTexto, descargoTexto });
+    const nombreArchivo = nombreArchivoDocumento("ORDEN DE SANCION", caso);
+    saveAs(blob, nombreArchivo);
+    registrarVersionDocumento(caso.id, "orden_sancion", blob, nombreArchivo);
     const { error } = await supabase.from("casos").update({
       sancion_generada_at: new Date().toISOString(),
       sancion_tercio_label: tercioValue,
