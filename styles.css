@@ -153,6 +153,7 @@ tbody tr:last-child td { border-bottom: none; }
 .pill { padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
 .pill-yes { background: var(--accent-soft); color: var(--accent); }
 .pill-no { background: rgba(200,140,20,0.15); color: #d99a2b; }
+.pill-inactive { background: rgba(147, 163, 179, 0.15); color: var(--text-muted); }
 
 /* Modal */
 .modal-overlay {

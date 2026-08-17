@@ -26,6 +26,7 @@
       <button class="tab-btn active" data-view="casos">Casos</button>
       <button class="tab-btn" data-view="efectivos">Efectivos</button>
       <button class="tab-btn" data-view="panel">Panel</button>
+      <button class="tab-btn admin-only hidden" data-view="historial">Historial</button>
     </nav>
     <div class="user-box">
       <span id="userEmail"></span>
@@ -174,6 +175,29 @@
           <div class="panel-chart-wrap"><canvas id="chartTendencia"></canvas></div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- HISTORIAL DE ACTIVIDAD -->
+  <section id="view-historial" class="view hidden">
+    <div class="view-header">
+      <h2>Historial de actividad</h2>
+    </div>
+    <p class="muted small">Registro automático e inalterable de cambios en casos y efectivos — quién, qué y cuándo. Se genera solo, no depende de que nadie lo marque.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha/hora</th>
+            <th>Quién</th>
+            <th>Tabla</th>
+            <th>Acción</th>
+            <th>Cambios</th>
+          </tr>
+        </thead>
+        <tbody id="historialTableBody"></tbody>
+      </table>
+      <p id="historialEmpty" class="muted hidden">Sin actividad registrada todavía.</p>
     </div>
   </section>
 

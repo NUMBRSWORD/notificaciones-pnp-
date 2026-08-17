@@ -100,12 +100,18 @@ function formatDate(fechaISO) {
   return `${d}/${m}/${y}`;
 }
 
+function formatFechaHora(fecha, hora) {
+  const f = formatDate(fecha);
+  if (f === "-") return "-";
+  return hora ? `${f} ${hora.slice(0, 5)}` : f;
+}
+
 // ---------- View switching ----------
 function showView(id) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(id).classList.remove("hidden");
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-panel": "panel" };
+  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-panel": "panel", "view-historial": "historial" };
   if (map[id]) {
     document.querySelector(`.tab-btn[data-view="${map[id]}"]`)?.classList.add("active");
   }
@@ -117,6 +123,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (target === "casos") { showView("view-dashboard"); loadCasos(); }
     if (target === "efectivos") { showView("view-efectivos"); loadEfectivos(); }
     if (target === "panel") { showView("view-panel"); renderPanel(); }
+    if (target === "historial") { showView("view-historial"); loadHistorial(); }
   });
 });
 
@@ -1300,3 +1307,55 @@ $("casoForm").addEventListener("submit", async (e) => {
   closeModal();
   loadCasos();
 });
+
+// ---------- Historial de actividad ----------
+async function loadHistorial() {
+  const { data, error } = await supabase
+    .from("audit_log")
+    .select("*")
+    .order("changed_at", { ascending: false })
+    .limit(200);
+  if (error) { console.error(error); return; }
+  renderHistorialTable(data || []);
+}
+
+// Para UPDATE, arma una lista legible de "campo: antes → después" comparando
+// el jsonb guardado por el trigger; para INSERT/DELETE no hay comparación
+// posible (solo existe un lado), así que se muestra un texto fijo.
+function diffResumenHistorial(entry) {
+  if (entry.action === "INSERT") return "Registro creado.";
+  if (entry.action === "DELETE") return "Registro eliminado.";
+  const anterior = entry.old_data || {};
+  const nuevo = entry.new_data || {};
+  const campos = new Set([...Object.keys(anterior), ...Object.keys(nuevo)]);
+  const cambios = [];
+  campos.forEach((c) => {
+    if (c === "updated_at" || c === "created_at") return;
+    const a = anterior[c];
+    const b = nuevo[c];
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      cambios.push(`${escapeHtml(c)}: ${escapeHtml(String(a ?? "-"))} → ${escapeHtml(String(b ?? "-"))}`);
+    }
+  });
+  return cambios.length ? cambios.join(" · ") : "Sin cambios en los campos.";
+}
+
+function renderHistorialTable(entries) {
+  const tbody = $("historialTableBody");
+  tbody.innerHTML = "";
+  $("historialEmpty").classList.toggle("hidden", entries.length > 0);
+  for (const e of entries) {
+    const tr = document.createElement("tr");
+    const pillClase = e.action === "INSERT" ? "pill-yes" : e.action === "DELETE" ? "pill-no" : "pill-inactive";
+    const fecha = e.changed_at.slice(0, 10);
+    const hora = e.changed_at.slice(11, 16);
+    tr.innerHTML = `
+      <td>${formatFechaHora(fecha, hora)}</td>
+      <td>${escapeHtml(e.changed_by_email || "-")}</td>
+      <td>${escapeHtml(e.table_name)}</td>
+      <td><span class="pill ${pillClase}">${escapeHtml(e.action)}</span></td>
+      <td class="small">${diffResumenHistorial(e)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
