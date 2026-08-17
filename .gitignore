@@ -3,3 +3,12 @@ node_modules/
 devserver.cjs
 .claude/
 migrar_efectivos.sql
+
+# Skills de IA instalados con `npx skills add` / `npx impeccable install`
+# (herramientas locales del agente, no código de la app; workflows/ de
+# GitHub Pages se mantiene fuera de esto)
+.agents/
+.github/agents/
+.github/hooks/
+.github/skills/
+skills-lock.json
