@@ -60,6 +60,7 @@ const state = {
   session: null,
   role: null,
   email: null,
+  cip: null,
   casos: [],
   efectivos: [],
   currentCasoId: null,
@@ -218,6 +219,11 @@ async function loadProfile(userId, email) {
   }
   state.role = data?.role || "viewer";
   state.email = data?.email || email;
+  // Los oficiales inician sesión con "{cip}@imputacionpnp.local" -- de ahí se
+  // saca el CIP para poder autocompletar "Oficial que constató" con sus
+  // propios datos. Si entró con un correo real (autoregistro), no hay CIP.
+  const cipMatch = /^(\d+)@imputacionpnp\.local$/.exec(state.email || "");
+  state.cip = cipMatch ? cipMatch[1] : null;
   $("userEmail").textContent = state.email;
   $("userRole").textContent = state.role;
   document.querySelectorAll(".admin-only").forEach((el) => {
@@ -1065,6 +1071,11 @@ $("btnNuevoCaso").addEventListener("click", () => {
   $("hechoIAStatus").classList.add("hidden");
   $("codigoIASugerencia").classList.add("hidden");
   $("btnRedactarHechoIA").disabled = true;
+  // Quien crea el caso normalmente ES el oficial que constató -- se
+  // autocompleta con sus propios datos (buscados por su CIP de sesión), sin
+  // impedir que lo edite si en realidad está cargando el caso de otro.
+  const yoMismo = state.cip ? state.efectivos.find((ef) => ef.cip === state.cip) : null;
+  $("fOficialConstato").value = yoMismo ? `${yoMismo.grado || ""} ${yoMismo.apellidos_nombres || ""}`.replace(/\s+/g, " ").trim() : "";
   $("modalNuevoCaso").classList.remove("hidden");
 });
 $("btnCerrarModal").addEventListener("click", closeModal);
