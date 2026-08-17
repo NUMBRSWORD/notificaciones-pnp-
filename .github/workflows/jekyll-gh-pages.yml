@@ -22,9 +22,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Pruebas de la lógica pura (lib/*.test.js) -- si fallan, no se construye ni
+  # se despliega nada. Antes no había ningún gate: un cambio roto se publicaba
+  # igual si nadie corría "npm test" a mano antes de subirlo.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run tests
+        run: npm test
+
   # Build job
   build:
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
