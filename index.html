@@ -25,6 +25,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-view="casos">Casos</button>
       <button class="tab-btn" data-view="efectivos">Efectivos</button>
+      <button class="tab-btn" data-view="directivas">Directivas</button>
       <button class="tab-btn" data-view="panel">Panel</button>
       <button class="tab-btn admin-only hidden" data-view="historial">Historial</button>
     </nav>
@@ -151,6 +152,19 @@
       <button id="btnVolverDashboard" class="btn-ghost">&larr; Volver</button>
     </div>
     <div id="casoDetailContent"></div>
+  </section>
+
+  <!-- DIRECTIVAS INTERNAS -->
+  <section id="view-directivas" class="view hidden">
+    <div class="view-header">
+      <h2>Directivas internas</h2>
+      <div class="view-actions">
+        <button id="btnNuevaDirectiva" class="btn-primary admin-only hidden">+ Nueva directiva</button>
+      </div>
+    </div>
+    <p class="muted small">Aquí se registra el texto real de las directivas internas vigentes de la PNP (por ejemplo, los requisitos para que un descanso médico particular sea exonerante). La IA que analiza el descargo para la Orden de Sanción solo aplica lo que esté escrito aquí literalmente — si no hay una directiva cargada sobre algo, la IA lo dice en vez de inventarlo.</p>
+    <div id="directivasList"></div>
+    <p id="directivasEmpty" class="muted hidden">No hay directivas registradas todavía.</p>
   </section>
 
   <!-- PANEL DE METRICAS -->
@@ -297,6 +311,38 @@
       <div class="modal-actions">
         <button type="button" id="btnCancelarEfectivo" class="btn-ghost">Cancelar</button>
         <button type="submit" class="btn-primary">Guardar efectivo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL DIRECTIVA (nueva / editar) -->
+<div id="modalDirectiva" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="directivaModalTitulo">Nueva directiva</h3>
+      <button id="btnCerrarModalDirectiva" class="btn-ghost">✕</button>
+    </div>
+    <form id="directivaForm" class="modal-body">
+      <input type="hidden" id="dvId" />
+      <label>Título
+        <input type="text" id="dvTitulo" required placeholder="Ej. Requisitos de descansos médicos particulares" />
+      </label>
+      <label>N.º de documento (opcional)
+        <input type="text" id="dvNumero" placeholder="Ej. Directiva N.° 01-2024-DIRNOS-PNP" />
+      </label>
+      <label>Archivo (PDF o imagen, opcional — se intenta extraer el texto automáticamente)
+        <input type="file" id="dvArchivo" accept="application/pdf,image/*" />
+      </label>
+      <p id="dvArchivoStatus" class="muted small hidden"></p>
+      <label>Contenido (el texto exacto que usará la IA — revíselo aunque lo haya extraído de un archivo)
+        <textarea id="dvContenido" rows="10" required placeholder="Pegue aquí el texto de la directiva, o suba un archivo arriba para extraerlo automáticamente y luego revíselo."></textarea>
+      </label>
+      <label class="checkbox-row"><input type="checkbox" id="dvActiva" checked /> Activa (la IA la usa como contexto)</label>
+      <p id="directivaError" class="error hidden"></p>
+      <div class="modal-actions">
+        <button type="button" id="btnCancelarDirectiva" class="btn-ghost">Cancelar</button>
+        <button type="submit" class="btn-primary">Guardar directiva</button>
       </div>
     </form>
   </div>

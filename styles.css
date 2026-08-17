@@ -155,6 +155,19 @@ tbody tr:last-child td { border-bottom: none; }
 .pill-no { background: rgba(200,140,20,0.15); color: #d99a2b; }
 .pill-inactive { background: rgba(147, 163, 179, 0.15); color: var(--text-muted); }
 
+/* Directivas internas */
+.directiva-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 22px; margin-bottom: 14px;
+}
+.directiva-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.directiva-card-header h3 { margin: 0; }
+.directiva-contenido {
+  white-space: pre-line; font-size: 0.88rem; line-height: 1.5; color: var(--text-muted);
+  margin: 10px 0; max-height: 160px; overflow-y: auto;
+}
+.directiva-actions { display: flex; gap: 8px; margin-top: 8px; }
+
 /* Modal */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.55);

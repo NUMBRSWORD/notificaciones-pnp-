@@ -7,6 +7,7 @@ import { renderizarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato
 import { renderizarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo } from "./lib/actaNoDescargo.js";
 import { renderizarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault } from "./lib/ordenSancion.js";
 import { getInfraccion, normalizarCodigoInfraccion, ANEXO_I } from "./lib/anexoI.js";
+import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva, subirArchivoDirectiva } from "./lib/directivas.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
 
@@ -65,6 +66,7 @@ const state = {
   cip: null,
   casos: [],
   efectivos: [],
+  directivas: [],
   currentCasoId: null,
 };
 
@@ -139,7 +141,7 @@ function showView(id) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(id).classList.remove("hidden");
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-panel": "panel", "view-historial": "historial" };
+  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-directivas": "directivas", "view-panel": "panel", "view-historial": "historial" };
   if (map[id]) {
     document.querySelector(`.tab-btn[data-view="${map[id]}"]`)?.classList.add("active");
   }
@@ -150,6 +152,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     const target = btn.dataset.view;
     if (target === "casos") { showView("view-dashboard"); loadCasos(); }
     if (target === "efectivos") { showView("view-efectivos"); loadEfectivos(); }
+    if (target === "directivas") { showView("view-directivas"); loadDirectivasView(); }
     if (target === "panel") { showView("view-panel"); renderPanel(); }
     if (target === "historial") { showView("view-historial"); loadHistorial(); }
   });
@@ -294,6 +297,9 @@ async function onAuthed(session) {
   showView("view-dashboard");
   await loadEfectivos();
   loadCasos();
+  // Se precarga en segundo plano (no se espera) para que estén listas en
+  // cuanto se abra el formulario de Orden de Sanción, sin retrasar el login.
+  loadDirectivasView();
 }
 
 function onSignedOut() {
@@ -578,9 +584,11 @@ $("asistenteForm").addEventListener("submit", async (e) => {
   const submitBtn = e.target.querySelector("button[type=submit]");
   submitBtn.disabled = true;
   try {
+    const directivas = directivasParaIA(state.directivas.length ? state.directivas : await listarDirectivas(supabase));
     const { data, error } = await supabase.functions.invoke("asistente-normativa", {
       body: {
         catalogo: CATALOGO_ASISTENTE,
+        directivas,
         historial: state_asistenteHistorial.slice(0, -1).slice(-8),
         pregunta,
       },
@@ -1058,8 +1066,11 @@ async function analizarDescargoConIA(caso) {
       textoDescargo = (await extraerTextoDescargo(caso, (msg) => { statusEl.textContent = msg; })).trim();
     }
 
-    statusEl.textContent = "Analizando el descargo con IA...";
+    statusEl.textContent = "Consultando directivas internas y antecedentes...";
+    const directivas = directivasParaIA(state.directivas.length ? state.directivas : await listarDirectivas(supabase));
     const antecedentes = buscarAntecedentes(caso, state.casos);
+
+    statusEl.textContent = "Analizando el descargo con IA...";
     const { data, error } = await supabase.functions.invoke("analizar-descargo-sancion", {
       body: {
         investigadoCompleto: `${caso.grado || ""} ${caso.apellidos || ""} ${caso.nombres || ""}`.replace(/\s+/g, " ").trim(),
@@ -1070,6 +1081,7 @@ async function analizarDescargoConIA(caso) {
         tercios: opciones.map((o) => ({ value: o.value, label: o.label, extremo: o.extremo })),
         antecedentes,
         textoDescargo,
+        directivas,
       },
     });
     if (error) throw error;
@@ -1397,6 +1409,136 @@ function diffResumenHistorial(entry) {
   });
   return cambios.length ? cambios.join(" · ") : "Sin cambios en los campos.";
 }
+
+// ---------- Directivas internas ----------
+async function loadDirectivasView() {
+  try {
+    state.directivas = await listarDirectivas(supabase);
+  } catch (err) {
+    console.error(err);
+    state.directivas = [];
+  }
+  renderDirectivasList(state.directivas);
+}
+
+function renderDirectivasList(list) {
+  const container = $("directivasList");
+  if (!container) return;
+  $("directivasEmpty").classList.toggle("hidden", list.length > 0);
+  const isAdmin = state.role === "admin";
+  container.innerHTML = list.map((d) => `
+    <div class="directiva-card" data-id="${d.id}">
+      <div class="directiva-card-header">
+        <h3>${escapeHtml(d.titulo)}${d.numero_documento ? ` <span class="muted small">(${escapeHtml(d.numero_documento)})</span>` : ""}</h3>
+        <span class="pill ${d.activa ? "pill-yes" : "pill-inactive"}">${d.activa ? "Activa" : "Inactiva"}</span>
+      </div>
+      <div class="directiva-contenido">${escapeHtml(d.contenido)}</div>
+      ${isAdmin ? `
+        <div class="directiva-actions">
+          <button type="button" class="btn-secondary btn-editar-directiva">Editar</button>
+          <button type="button" class="btn-danger btn-eliminar-directiva">Eliminar</button>
+        </div>
+      ` : ""}
+    </div>
+  `).join("");
+
+  if (!isAdmin) return;
+  container.querySelectorAll(".btn-editar-directiva").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const id = e.currentTarget.closest(".directiva-card").dataset.id;
+      const directiva = state.directivas.find((d) => String(d.id) === id);
+      if (directiva) abrirModalDirectiva(directiva);
+    });
+  });
+  container.querySelectorAll(".btn-eliminar-directiva").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      const id = e.currentTarget.closest(".directiva-card").dataset.id;
+      if (!confirm("¿Eliminar esta directiva? Esta acción no se puede deshacer.")) return;
+      try {
+        await eliminarDirectiva(supabase, id);
+        loadDirectivasView();
+      } catch (err) {
+        alert("No se pudo eliminar: " + (err.message || err));
+      }
+    });
+  });
+}
+
+function abrirModalDirectiva(directiva) {
+  $("directivaForm").reset();
+  $("dvId").value = directiva?.id || "";
+  $("dvTitulo").value = directiva?.titulo || "";
+  $("dvNumero").value = directiva?.numero_documento || "";
+  $("dvContenido").value = directiva?.contenido || "";
+  $("dvActiva").checked = directiva ? !!directiva.activa : true;
+  $("dvArchivoStatus").classList.add("hidden");
+  $("directivaError").classList.add("hidden");
+  $("directivaModalTitulo").textContent = directiva ? "Editar directiva" : "Nueva directiva";
+  $("modalDirectiva").classList.remove("hidden");
+}
+function closeModalDirectiva() { $("modalDirectiva").classList.add("hidden"); }
+
+$("btnNuevaDirectiva")?.addEventListener("click", () => abrirModalDirectiva(null));
+$("btnCerrarModalDirectiva")?.addEventListener("click", closeModalDirectiva);
+$("btnCancelarDirectiva")?.addEventListener("click", closeModalDirectiva);
+
+$("dvArchivo")?.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  const statusEl = $("dvArchivoStatus");
+  if (!file) { statusEl.classList.add("hidden"); return; }
+  statusEl.textContent = "Leyendo archivo...";
+  statusEl.classList.remove("hidden");
+  try {
+    let texto = "";
+    if (file.type === "application/pdf") {
+      texto = await extractPdfText(file, (msg) => { statusEl.textContent = msg; });
+    } else if (file.type.startsWith("image/")) {
+      statusEl.textContent = "Leyendo imagen con reconocimiento de texto (OCR)...";
+      texto = await extractImagenTextoConOcr(file);
+    }
+    texto = texto.trim();
+    if (texto) {
+      if (!$("dvContenido").value.trim()) $("dvContenido").value = texto;
+      statusEl.textContent = "Texto extraído del archivo. Revíselo y corríjalo antes de guardar — el reconocimiento automático puede tener errores.";
+    } else {
+      statusEl.textContent = "No se pudo extraer texto del archivo. Péguelo usted mismo en el campo de abajo.";
+    }
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = "No se pudo leer el archivo automáticamente. Péguelo usted mismo en el campo de abajo.";
+  }
+});
+
+$("directivaForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = $("directivaError");
+  errEl.classList.add("hidden");
+  const id = $("dvId").value || null;
+  const titulo = $("dvTitulo").value.trim();
+  const numero_documento = $("dvNumero").value.trim();
+  const contenido = $("dvContenido").value.trim();
+  const activa = $("dvActiva").checked;
+  if (!titulo || !contenido) return;
+
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const savedId = await guardarDirectiva(supabase, { id, titulo, numero_documento, contenido, activa, userId: state.session.user.id });
+    const file = $("dvArchivo").files[0];
+    if (file) {
+      const { path, nombre } = await subirArchivoDirectiva(supabase, savedId, file);
+      await guardarDirectiva(supabase, { id: savedId, titulo, numero_documento, contenido, activa, archivo_path: path, archivo_nombre: nombre });
+    }
+    closeModalDirectiva();
+    loadDirectivasView();
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = "Error: " + (err.message || err);
+    errEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
 
 function renderHistorialTable(entries) {
   const tbody = $("historialTableBody");
