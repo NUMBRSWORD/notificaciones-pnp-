@@ -13,6 +13,23 @@
   --radius: 10px;
 }
 
+/* Tema claro, activado con [data-theme="light"] en <html>. El oscuro sigue
+   siendo el predeterminado. */
+:root[data-theme="light"] {
+  --bg: #eef1f4;
+  --bg-elev: #ffffff;
+  --bg-card: #ffffff;
+  --border: #d8dee4;
+  --text: #16222c;
+  --text-muted: #5c6b78;
+  --accent: #1a8a4a;
+  --accent-hover: #157139;
+  --accent-soft: rgba(26, 138, 74, 0.12);
+  --danger: #c0342c;
+  --danger-soft: rgba(192, 52, 44, 0.1);
+  --radius: 10px;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -184,6 +201,23 @@ tbody tr:last-child td { border-bottom: none; }
 .grid-3 { display: grid; grid-template-columns: 1fr 2fr 2fr; gap: 0 10px; flex: 1; }
 .grid-3 input { margin: 0; }
 
+/* Panel de métricas */
+.panel-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px; margin-bottom: 20px;
+}
+.stat-tile {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.stat-tile .stat-value { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-tile .stat-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
+.panel-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.panel-chart-wide { grid-column: 1 / -1; }
+.panel-chart-card h3 { margin-top: 0; margin-bottom: 14px; font-size: 0.95rem; }
+.panel-chart-wrap { position: relative; height: 260px; }
+@media (max-width: 800px) { .panel-charts { grid-template-columns: 1fr; } }
+
 .asistente-fab {
   position: fixed; bottom: 24px; right: 24px; z-index: 60;
   width: 54px; height: 54px; border-radius: 50%; border: none;
@@ -210,10 +244,20 @@ tbody tr:last-child td { border-bottom: none; }
 .asistente-form input { flex: 1; margin: 0; }
 .asistente-form button { padding: 9px 14px; }
 
+.tema-toggle {
+  position: fixed; top: 16px; right: 16px; z-index: 70;
+  width: 38px; height: 38px; border-radius: 50%;
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.tema-toggle:hover { border-color: var(--accent); }
+
 @media (max-width: 640px) {
   .grid-2, .detail-grid { grid-template-columns: 1fr; }
   .topbar-inner { flex-wrap: wrap; }
   .tabs { order: 3; width: 100%; }
   .asistente-widget { right: 12px; bottom: 12px; }
   .asistente-fab { right: 16px; bottom: 16px; }
+  .tema-toggle { top: 10px; right: 10px; }
 }

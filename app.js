@@ -7,6 +7,7 @@ import { generarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato, t
 import { generarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo } from "./lib/actaNoDescargo.js";
 import { generarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault } from "./lib/ordenSancion.js";
 import { getInfraccion, normalizarCodigoInfraccion, ANEXO_I } from "./lib/anexoI.js";
+import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -68,6 +69,25 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// ---------- Tema claro/oscuro ----------
+function actualizarIconoTema() {
+  const claro = document.documentElement.getAttribute("data-theme") === "light";
+  $("btnTemaToggle").textContent = claro ? "☀️" : "🌙";
+  $("btnTemaToggle").title = claro ? "Cambiar a tema oscuro" : "Cambiar a tema claro";
+}
+actualizarIconoTema();
+$("btnTemaToggle").addEventListener("click", () => {
+  const claroAhora = document.documentElement.getAttribute("data-theme") === "light";
+  if (claroAhora) {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.setItem("tema", "dark");
+  } else {
+    document.documentElement.setAttribute("data-theme", "light");
+    localStorage.setItem("tema", "light");
+  }
+  actualizarIconoTema();
+});
+
 function escapeHtml(s) {
   return (s ?? "").toString()
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -85,7 +105,7 @@ function showView(id) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(id).classList.remove("hidden");
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos" };
+  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-panel": "panel" };
   if (map[id]) {
     document.querySelector(`.tab-btn[data-view="${map[id]}"]`)?.classList.add("active");
   }
@@ -96,6 +116,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     const target = btn.dataset.view;
     if (target === "casos") { showView("view-dashboard"); loadCasos(); }
     if (target === "efectivos") { showView("view-efectivos"); loadEfectivos(); }
+    if (target === "panel") { showView("view-panel"); renderPanel(); }
   });
 });
 
@@ -536,6 +557,117 @@ $("asistenteForm").addEventListener("submit", async (e) => {
     submitBtn.disabled = false;
   }
 });
+
+// ---------- Panel de métricas ----------
+let chartsPanel = {};
+
+function estadoDeCaso(c) {
+  if (!c.imputacion_generada_at) return "Notificación pendiente";
+  if (c.sancion_generada_at) return "Sanción generada";
+  if (c.fecha_descargo) return "Con descargo, evaluando";
+  if (plazoDescargoVencido(c)) return "Plazo vencido, pendiente";
+  return "Plazo de descargo vigente";
+}
+
+function colorTema(varName) {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+}
+
+const MESES_CORTO_PANEL = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+function renderPanel() {
+  const casos = state.casos;
+  $("panelEmpty").classList.toggle("hidden", casos.length > 0);
+  $("panelContenido").classList.toggle("hidden", casos.length === 0);
+  Object.values(chartsPanel).forEach((c) => c.destroy());
+  chartsPanel = {};
+  if (!casos.length) return;
+
+  const text = colorTema("--text");
+  const textMuted = colorTema("--text-muted");
+  const border = colorTema("--border");
+  const accent = colorTema("--accent");
+  const accentSoft = colorTema("--accent-soft");
+
+  const pendientesVencidos = casos.filter((c) =>
+    c.imputacion_generada_at && !c.fecha_descargo && !c.sancion_generada_at && plazoDescargoVencido(c)
+  ).length;
+  const sancionados = casos.filter((c) => c.sancion_generada_at).length;
+  $("panelStats").innerHTML = `
+    <div class="stat-tile"><div class="stat-value">${casos.length}</div><div class="stat-label">Casos totales</div></div>
+    <div class="stat-tile"><div class="stat-value">${pendientesVencidos}</div><div class="stat-label">Plazo vencido sin resolver</div></div>
+    <div class="stat-tile"><div class="stat-value">${sancionados}</div><div class="stat-label">Con sanción generada</div></div>
+  `;
+
+  const estadoCounts = {};
+  casos.forEach((c) => { const e = estadoDeCaso(c); estadoCounts[e] = (estadoCounts[e] || 0) + 1; });
+  const paletaEstado = ["#1f9d55", "#d99a2b", "#4a90d9", "#8a6fd6", "#e5484d"];
+
+  const codigoCounts = {};
+  casos.forEach((c) => { const cod = (c.codigo_infraccion || "").trim() || "Sin código"; codigoCounts[cod] = (codigoCounts[cod] || 0) + 1; });
+  const codigosOrdenados = Object.entries(codigoCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  const mesesCounts = {};
+  casos.forEach((c) => {
+    if (!c.fecha_hecho) return;
+    const mes = c.fecha_hecho.slice(0, 7);
+    mesesCounts[mes] = (mesesCounts[mes] || 0) + 1;
+  });
+  const mesesOrdenados = Object.keys(mesesCounts).sort();
+  const mesesLabels = mesesOrdenados.map((m) => {
+    const [y, mm] = m.split("-");
+    return `${MESES_CORTO_PANEL[Number(mm) - 1]} ${y}`;
+  });
+
+  chartsPanel.estado = new Chart($("chartEstado"), {
+    type: "doughnut",
+    data: {
+      labels: Object.keys(estadoCounts),
+      datasets: [{ data: Object.values(estadoCounts), backgroundColor: paletaEstado, borderColor: border, borderWidth: 2 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom", labels: { color: text, boxWidth: 12, padding: 10, font: { size: 11 } } } },
+    },
+  });
+
+  chartsPanel.codigo = new Chart($("chartCodigo"), {
+    type: "bar",
+    data: {
+      labels: codigosOrdenados.map((e) => e[0]),
+      datasets: [{ data: codigosOrdenados.map((e) => e[1]), backgroundColor: accent, borderRadius: 4 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: "y",
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: textMuted, precision: 0 }, grid: { color: border } },
+        y: { ticks: { color: text }, grid: { display: false } },
+      },
+    },
+  });
+
+  chartsPanel.tendencia = new Chart($("chartTendencia"), {
+    type: "line",
+    data: {
+      labels: mesesLabels,
+      datasets: [{
+        data: mesesOrdenados.map((m) => mesesCounts[m]),
+        borderColor: accent, backgroundColor: accentSoft,
+        fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: accent,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: textMuted }, grid: { display: false } },
+        y: { ticks: { color: textMuted, precision: 0 }, grid: { color: border }, beginAtZero: true },
+      },
+    },
+  });
+}
 
 $("btnExportarExcel").addEventListener("click", () => {
   if (!casosVisibles.length) { alert("No hay casos para exportar (revise el buscador)."); return; }

@@ -1,0 +1,9 @@
+{
+  "name": "notificacion-imputacion-pnp",
+  "private": true,
+  "type": "module",
+  "description": "Sin dependencias que instalar: los paquetes del navegador (Supabase, docxtemplater, pdf.js, Chart.js, etc.) se cargan directo desde esm.sh en el código. Este package.json solo existe para 'npm test'.",
+  "scripts": {
+    "test": "node --test lib/*.test.js"
+  }
+}

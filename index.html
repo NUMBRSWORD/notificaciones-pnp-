@@ -5,8 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Notificación de Imputación PNP</title>
 <link rel="stylesheet" href="styles.css" />
+<script>
+  (function () {
+    var t = localStorage.getItem("tema");
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+  })();
+</script>
 </head>
 <body>
+
+<button id="btnTemaToggle" class="tema-toggle" type="button" title="Cambiar tema claro/oscuro">🌙</button>
 
 <header id="topbar" class="hidden">
   <div class="topbar-inner">
@@ -17,6 +25,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-view="casos">Casos</button>
       <button class="tab-btn" data-view="efectivos">Efectivos</button>
+      <button class="tab-btn" data-view="panel">Panel</button>
     </nav>
     <div class="user-box">
       <span id="userEmail"></span>
@@ -141,6 +150,31 @@
       <button id="btnVolverDashboard" class="btn-ghost">&larr; Volver</button>
     </div>
     <div id="casoDetailContent"></div>
+  </section>
+
+  <!-- PANEL DE METRICAS -->
+  <section id="view-panel" class="view hidden">
+    <div class="view-header">
+      <h2>Panel</h2>
+    </div>
+    <p id="panelEmpty" class="muted hidden">Todavía no hay casos para mostrar métricas.</p>
+    <div id="panelContenido">
+      <div class="panel-stats" id="panelStats"></div>
+      <div class="panel-charts">
+        <div class="detail-card panel-chart-card">
+          <h3>Casos por estado del trámite</h3>
+          <div class="panel-chart-wrap"><canvas id="chartEstado"></canvas></div>
+        </div>
+        <div class="detail-card panel-chart-card">
+          <h3>Casos por código de infracción</h3>
+          <div class="panel-chart-wrap"><canvas id="chartCodigo"></canvas></div>
+        </div>
+        <div class="detail-card panel-chart-card panel-chart-wide">
+          <h3>Tendencia mensual de casos</h3>
+          <div class="panel-chart-wrap"><canvas id="chartTendencia"></canvas></div>
+        </div>
+      </div>
+    </div>
   </section>
 
 </main>
