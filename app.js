@@ -1101,6 +1101,7 @@ $("casoForm").addEventListener("submit", async (e) => {
     return;
   }
 
+  const oficialConstatoTexto = $("fOficialConstato").value.trim();
   const payload = {
     grado: $("fGrado").value.trim(),
     apellidos: $("fApellidos").value.trim(),
@@ -1109,7 +1110,10 @@ $("casoForm").addEventListener("submit", async (e) => {
     fecha_hecho: $("fFechaHecho").value,
     descripcion_hecho: $("fDescripcionHecho").value.trim(),
     unidad_investigado: $("fUnidad").value.trim(),
-    oficial_constato: $("fOficialConstato").value.trim(),
+    oficial_constato: oficialConstatoTexto,
+    // Igual que en moral-y-disciplina: la política de RLS usa este CIP para
+    // decidir qué casos puede ver cada oficial, no solo el admin.
+    oficial_constato_cip: buscarOficialConstato(oficialConstatoTexto, state.efectivos)?.cip || null,
   };
 
   const { data: inserted, error } = await supabase.from("casos").insert(payload).select().single();
