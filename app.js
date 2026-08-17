@@ -1087,6 +1087,21 @@ $("btnCerrarModal").addEventListener("click", closeModal);
 $("btnCancelarCaso").addEventListener("click", closeModal);
 function closeModal() { $("modalNuevoCaso").classList.add("hidden"); }
 
+// Separa "apellidos_nombres" en sus dos partes. Si trae coma (formato de los
+// oficiales, p.ej. "SOLIS GONZALES,MANUEL ANGELO") corta ahí; si no (la
+// mayoría de suboficiales, p.ej. "HIDALGO FERRARI HANS BRANDON") asume que
+// las primeras 1-2 palabras son los apellidos.
+function splitApellidosNombres(full) {
+  const txt = (full || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+  if (txt.includes(",")) {
+    const [ap, no] = txt.split(",");
+    return { apellidos: ap.trim(), nombres: (no || "").trim() };
+  }
+  const words = txt.split(/\s+/).filter(Boolean);
+  if (words.length <= 2) return { apellidos: txt, nombres: "" };
+  return { apellidos: words.slice(0, 2).join(" "), nombres: words.slice(2).join(" ") };
+}
+
 $("btnBuscarEfectivo").addEventListener("click", () => {
   const q = $("lookupCipDni").value.trim();
   const resultEl = $("lookupResult");
@@ -1098,9 +1113,13 @@ $("btnBuscarEfectivo").addEventListener("click", () => {
     return;
   }
   $("fGrado").value = found.grado || "";
-  const partes = (found.apellidos_nombres || "").split(",");
-  $("fApellidos").value = (partes[0] || "").trim();
-  $("fNombres").value = (partes[1] || "").trim();
+  // La mayoría de los efectivos NO tienen coma en apellidos_nombres (solo los
+  // oficiales, p.ej. "SOLIS GONZALES,MANUEL ANGELO") -- para el resto (p.ej.
+  // "HIDALGO FERRARI HANS BRANDON") hay que asumir que las primeras 1-2
+  // palabras son los apellidos, igual que ya hace el resto de la app.
+  const { apellidos, nombres } = splitApellidosNombres(found.apellidos_nombres);
+  $("fApellidos").value = apellidos;
+  $("fNombres").value = nombres;
   resultEl.textContent = `Encontrado: ${found.grado || ""} ${found.apellidos_nombres || ""}`;
   resultEl.classList.remove("hidden");
 });
