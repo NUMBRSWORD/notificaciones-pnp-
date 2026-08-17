@@ -195,15 +195,15 @@ tbody tr:last-child td { border-bottom: none; }
   position: fixed; inset: 0; background: rgba(0,0,0,0.55);
   display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
   transition: opacity 200ms var(--ease-out);
+  @starting-style { opacity: 0; }
 }
-.modal-overlay { @starting-style { opacity: 0; } }
 .modal {
   background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
   width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto;
   transform-origin: center;
   transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out);
+  @starting-style { transform: scale(0.95); opacity: 0; }
 }
-.modal { @starting-style { transform: scale(0.95); opacity: 0; } }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 22px; border-bottom: 1px solid var(--border);
@@ -276,8 +276,8 @@ tbody tr:last-child td { border-bottom: none; }
   overflow: hidden;
   transform-origin: bottom right;
   transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out);
+  @starting-style { transform: scale(0.95) translateY(8px); opacity: 0; }
 }
-.asistente-widget { @starting-style { transform: scale(0.95) translateY(8px); opacity: 0; } }
 .asistente-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 14px; border-bottom: 1px solid var(--border); font-weight: 600;
