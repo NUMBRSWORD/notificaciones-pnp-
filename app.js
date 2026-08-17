@@ -578,6 +578,11 @@ async function fileLinkHtml(bucket, path, name) {
 
 async function renderCasoDetail(caso) {
   const isAdmin = state.role === "admin";
+  // El admin gestiona cualquier caso; un oficial gestiona el suyo (donde su
+  // propio CIP quedó como oficial_constato_cip al crearlo) -- RLS exige
+  // exactamente esto mismo del lado del servidor, esto solo decide qué
+  // formularios mostrar.
+  const puedeGestionar = isAdmin || (!!state.cip && caso.oficial_constato_cip === state.cip);
   const sustentoArchivo = await fileLinkHtml("casos-imputacion-pnp", caso.archivo_sustento_path, caso.archivo_sustento_nombre);
   const descargoArchivo = await fileLinkHtml("casos-imputacion-pnp", caso.archivo_descargo_path, caso.archivo_descargo_nombre);
   const puedeDescargar = puedeGenerarImputacion(caso, state.efectivos);
@@ -608,7 +613,7 @@ async function renderCasoDetail(caso) {
         <div class="detail-field">
           <div class="label">Fecha de notificación de la Imputación</div>
           <div class="value">
-            ${isAdmin ? `
+            ${puedeGestionar ? `
               <form id="notificacionForm" class="inline-edit">
                 <input type="date" id="fNotificacion" value="${caso.imputacion_generada_at ? caso.imputacion_generada_at.slice(0, 10) : ""}" required />
                 <button type="submit" class="btn-secondary">Guardar</button>
@@ -641,7 +646,7 @@ async function renderCasoDetail(caso) {
         ${plazoVencido ? `
           ${puedeActa ? `<button type="button" class="btn-secondary" id="btnDescargarActa">⬇ Descargar Acta de No Descargo</button>` : `<p class="muted small">Venció el plazo, pero no se pudo ubicar en Efectivos al oficial o al investigado para generar el acta.</p>`}
         ` : `<p class="muted small">El plazo aún está vigente, todavía no corresponde generar el acta.</p>`}
-        ${isAdmin ? `
+        ${puedeGestionar ? `
         <form id="descargoForm" style="margin-top:14px">
           <p class="muted small">Si el investigado sí presenta su descargo, regístrelo aquí para que ya no se genere el acta:</p>
           <div class="grid-2">
@@ -655,7 +660,7 @@ async function renderCasoDetail(caso) {
       `}
     </div>
 
-    ${isAdmin && (caso.fecha_descargo || plazoVencido) ? `
+    ${puedeGestionar && (caso.fecha_descargo || plazoVencido) ? `
     <div class="detail-card">
       <h3>Orden de Sanción</h3>
       ${puedeSancion ? `
@@ -686,7 +691,7 @@ async function renderCasoDetail(caso) {
     </div>
     ` : ""}
 
-    ${isAdmin && caso.sancion_generada_at ? `
+    ${puedeGestionar && caso.sancion_generada_at ? `
     <div class="detail-card">
       <h3>Notificación de la Orden de Sanción</h3>
       ${caso.orden_notificada_at ? `
