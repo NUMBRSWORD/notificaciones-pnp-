@@ -212,28 +212,55 @@ function actualizarPreviewInfraccion() {
 $("fCodigoInfraccion").addEventListener("input", actualizarPreviewInfraccion);
 
 // ---------- IA en el formulario de nuevo caso ----------
-$("fArchivoSustento").addEventListener("change", (e) => {
-  $("btnRedactarHechoIA").disabled = !e.target.files[0];
-});
+// El botón sirve para dos cosas distintas según lo que haya: si hay un
+// archivo de sustento, la IA redacta la descripción desde ese documento
+// (como antes); si no hay archivo pero el oficial ya escribió algo, la IA
+// en cambio pule esa redacción propia (coherencia, formalidad, ortografía)
+// sin inventar un documento que no existe -- antes esto solo estaba
+// disponible con archivo, aunque la función ya recibía el texto propio.
+function actualizarBotonRedactarIA() {
+  const btn = $("btnRedactarHechoIA");
+  const hayArchivo = !!$("fArchivoSustento").files[0];
+  const hayTexto = !!$("fDescripcionHecho").value.trim();
+  btn.disabled = !hayArchivo && !hayTexto;
+  if (hayArchivo) {
+    btn.textContent = "✨ Redactar con IA (desde el sustento)";
+    btn.title = "";
+  } else if (hayTexto) {
+    btn.textContent = "✨ Mejorar redacción con IA";
+    btn.title = "";
+  } else {
+    btn.textContent = "✨ Redactar con IA (desde el sustento)";
+    btn.title = "Suba un archivo de sustento o escriba una descripción primero";
+  }
+}
+$("fArchivoSustento").addEventListener("change", actualizarBotonRedactarIA);
+$("fDescripcionHecho").addEventListener("input", actualizarBotonRedactarIA);
 
 $("btnRedactarHechoIA").addEventListener("click", async () => {
   const file = $("fArchivoSustento").files[0];
   const statusEl = $("hechoIAStatus");
-  if (!file) return;
+  const notasPrevias = $("fDescripcionHecho").value.trim();
+  if (!file && !notasPrevias) return;
   const btn = $("btnRedactarHechoIA");
   btn.disabled = true;
   statusEl.classList.remove("hidden");
-  statusEl.textContent = "Leyendo el archivo de sustento...";
   try {
-    const esPdf = file.type === "application/pdf";
-    const esImagen = file.type.startsWith("image/");
-    const texto = esPdf
-      ? await extractPdfText(file, (msg) => { statusEl.textContent = msg; })
-      : esImagen
-      ? await extractImagenTextoConOcr(file, (msg) => { statusEl.textContent = msg; })
-      : "";
+    let texto = "";
+    if (file) {
+      statusEl.textContent = "Leyendo el archivo de sustento...";
+      const esPdf = file.type === "application/pdf";
+      const esImagen = file.type.startsWith("image/");
+      texto = esPdf
+        ? await extractPdfText(file, (msg) => { statusEl.textContent = msg; })
+        : esImagen
+        ? await extractImagenTextoConOcr(file, (msg) => { statusEl.textContent = msg; })
+        : "";
+    }
 
-    statusEl.textContent = "Redactando la descripción del hecho con IA...";
+    statusEl.textContent = texto
+      ? "Redactando la descripción del hecho con IA..."
+      : "Mejorando la redacción con IA...";
     const codigo = normalizarCodigoInfraccion($("fCodigoInfraccion").value.trim());
     const infraccion = getInfraccion(codigo);
     const { data, error } = await supabase.functions.invoke("redactar-hecho-imputacion", {
@@ -258,7 +285,7 @@ $("btnRedactarHechoIA").addEventListener("click", async () => {
     console.error(err);
     statusEl.textContent = "No se pudo redactar con IA: " + (err.message || err);
   } finally {
-    btn.disabled = false;
+    actualizarBotonRedactarIA();
   }
 });
 
@@ -1316,7 +1343,7 @@ $("btnNuevoCaso").addEventListener("click", () => {
   $("infraccionPreview").classList.add("hidden");
   $("hechoIAStatus").classList.add("hidden");
   $("codigoIASugerencia").classList.add("hidden");
-  $("btnRedactarHechoIA").disabled = true;
+  actualizarBotonRedactarIA();
   // Quien crea el caso normalmente ES el oficial que constató -- se
   // autocompleta con sus propios datos (buscados por su CIP de sesión), sin
   // impedir que lo edite si en realidad está cargando el caso de otro.
