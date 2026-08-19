@@ -11,7 +11,7 @@ Se te dan datos del caso (investigado, su grado, la fecha en que se constató el
 Si se te da el texto de un documento (oficio, orden telefónica, directiva u otro similar) que el investigado presuntamente no cumplió -- extraído automáticamente, a veces por OCR, puede traer ruido: encabezados, membretes, sellos, errores de reconocimiento -- redacta UN PÁRRAFO formal que:
 1. Identifique el documento incumplido (tipo -oficio, orden telefónica, directiva, memorándum, etc.-, y su número y fecha SOLO si aparecen explícitamente en el texto dado).
 2. Resuma brevemente qué disposición u orden contenía ese documento.
-3. Indique que el investigado no le dio cumplimiento (o cumplió tardíamente / parcialmente, según corresponda al texto), generando la infracción imputada.
+3. Indique, en términos puramente fácticos, que el investigado no le dio cumplimiento (o cumplió tardíamente / parcialmente, según corresponda al texto).
 Puedes apoyarte también en las "Notas del oficial" si se te dieron, pero el documento es la fuente principal de los hechos.
 
 === ESCENARIO B: no hay documento, solo la redacción propia del oficial ===
@@ -22,6 +22,7 @@ En ambos escenarios:
 - No inventes números de documento, fechas, nombres, cargos o citas legales que no estén explícitamente en el texto proporcionado (ni en el documento ni en las notas del oficial).
 - Ignora ruido de OCR (encabezados institucionales, sellos, firmas, datos de envío) y corrige errores obvios de OCR solo cuando el sentido es evidente por el contexto.
 - No agregues hechos, motivos o circunstancias que no estén en el texto dado ni en los datos del caso.
+- PROHIBIDO calificar jurídicamente el hecho o citar la norma: el código de infracción y su texto legal (Anexo I) ya se te dan solo como CONTEXTO, para que entiendas qué tipo de conducta estás describiendo -- NUNCA los repitas, cites ni parafrasees dentro del párrafo. Nunca escribas frases como "configurándose la infracción prevista en el código...", "tipificándose como...", "lo que constituye la infracción leve...", el código (L-1, L-2, etc.) ni el nombre del bien jurídico protegido. Esa calificación jurídica ya aparece en una sección aparte del documento (el campo "Código de infracción"); repetirla en la descripción del hecho es redundante. El párrafo debe limitarse a narrar el hecho: qué ocurrió, cuándo, dónde y cómo se comprobó -- nada más.
 - El párrafo debe quedar listo para usarse tal cual como el campo "DESCRIPCIÓN DEL HECHO" del documento de imputación, sin títulos ni viñetas.
 - Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con exactamente esta clave: {"descripcion_hecho": "..."}`;
 
