@@ -28,6 +28,8 @@
       <button class="tab-btn active" data-view="casos">Casos</button>
       <button class="tab-btn" data-view="efectivos">Efectivos</button>
       <button class="tab-btn" data-view="directivas">Directivas</button>
+      <button class="tab-btn" data-view="agenda">Agenda</button>
+      <button class="tab-btn" data-view="documentos">Documentos</button>
       <button class="tab-btn" data-view="panel">Panel</button>
       <button class="tab-btn admin-only hidden" data-view="historial">Historial</button>
     </nav>
@@ -135,6 +137,41 @@
       </table>
       <p id="casosEmpty" class="muted hidden">No hay casos registrados.</p>
     </div>
+  </section>
+
+  <!-- AGENDA OPERATIVA -->
+  <section id="view-agenda" class="view hidden">
+    <div class="view-header">
+      <div>
+        <h2>Agenda operativa</h2>
+        <p class="muted view-subtitle">Pendientes priorizados para resolver, con acceso directo al expediente.</p>
+      </div>
+      <div class="view-actions">
+        <input id="buscarAgenda" type="search" placeholder="Buscar en pendientes..." />
+        <button id="btnExportarAgenda" class="btn-secondary">Exportar calendario</button>
+      </div>
+    </div>
+    <div id="agendaEmpty" class="empty-state hidden">
+      <strong>Todo está al día</strong>
+      <span class="muted">No hay acciones pendientes por mostrar.</span>
+    </div>
+    <div id="agendaLista" class="agenda-list"></div>
+  </section>
+
+  <!-- CENTRO DE DOCUMENTOS -->
+  <section id="view-documentos" class="view hidden">
+    <div class="view-header">
+      <div>
+        <h2>Centro de documentos</h2>
+        <p class="muted view-subtitle">Versiones generadas y archivadas desde todos los expedientes.</p>
+      </div>
+      <input id="buscarDocumentos" type="search" placeholder="Buscar documento..." />
+    </div>
+    <div id="documentosEmpty" class="empty-state hidden">
+      <strong>No hay documentos generados</strong>
+      <span class="muted">Los documentos que generes aparecerán aquí.</span>
+    </div>
+    <div id="documentosLista" class="document-list"></div>
   </section>
 
   <!-- EFECTIVOS -->

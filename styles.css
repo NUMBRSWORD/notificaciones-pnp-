@@ -151,6 +151,17 @@ main { max-width: 1500px; margin: 0 auto; padding: 24px 20px 60px; }
 .action-item-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-type { color: var(--accent); font-size: 0.74rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .action-item .btn-secondary { flex-shrink: 0; }
+.agenda-list { display: grid; gap: 10px; }
+.agenda-item { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px; background: var(--bg-card); border: 1px solid var(--border); border-left: 3px solid var(--text-muted); border-radius: var(--radius); }
+.agenda-item.is-urgent { border-left-color: var(--danger); }
+.agenda-item.is-ready { border-left-color: #69aaf0; }
+.agenda-item.is-pending { border-left-color: #e5ad53; }
+.agenda-order { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 0.82rem; font-weight: 700; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 220px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.document-list { display: grid; gap: 10px; }
+.document-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+.document-item > div:first-child { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.document-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .center-view {
   min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
@@ -264,6 +275,15 @@ tbody tr:last-child td { border-bottom: none; }
 .detail-card-header h3 { margin: 0; }
 .detail-progress { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 18px 0; padding: 12px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; }
 .detail-progress-label { color: var(--text-muted); font-size: 0.82rem; }
+.timeline-card { margin: 0 0 18px; padding: 16px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; }
+.case-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; padding: 0; margin: 16px 0 0; list-style: none; }
+.case-timeline li { position: relative; display: flex; align-items: flex-start; gap: 8px; min-width: 0; color: var(--text-muted); }
+.case-timeline strong, .case-timeline small { display: block; }
+.case-timeline strong { color: inherit; font-size: 0.78rem; line-height: 1.25; }
+.case-timeline small { margin-top: 3px; font-size: 0.72rem; }
+.timeline-dot { flex: 0 0 auto; width: 10px; height: 10px; margin-top: 3px; border: 2px solid var(--border); border-radius: 50%; }
+.case-timeline .is-complete { color: var(--text); }
+.case-timeline .is-complete .timeline-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* Botón "Descargar Imputación" dentro de la tabla de notas */
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; white-space: nowrap; }
@@ -366,6 +386,9 @@ tbody tr:last-child td { border-bottom: none; }
   .quick-summary-stats > div { flex: 1; min-width: 0; padding: 8px 6px; }
   .action-item { align-items: flex-start; flex-direction: column; }
   .action-item .btn-secondary { width: 100%; }
+  .agenda-item { grid-template-columns: 30px minmax(0, 1fr); align-items: flex-start; }
+  .agenda-item .btn-primary { grid-column: 1 / -1; width: 100%; }
+  .document-item { align-items: flex-start; flex-direction: column; }
   .detail-progress { align-items: flex-start; flex-direction: column; }
   .asistente-widget { right: 12px; bottom: 12px; }
   .asistente-fab { right: 16px; bottom: 16px; }

@@ -176,7 +176,7 @@ function showView(id) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(id).classList.remove("hidden");
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-directivas": "directivas", "view-panel": "panel", "view-historial": "historial" };
+  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-directivas": "directivas", "view-agenda": "agenda", "view-documentos": "documentos", "view-panel": "panel", "view-historial": "historial" };
   if (map[id]) {
     document.querySelector(`.tab-btn[data-view="${map[id]}"]`)?.classList.add("active");
   }
@@ -188,6 +188,8 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (target === "casos") { showView("view-dashboard"); loadCasos(); }
     if (target === "efectivos") { showView("view-efectivos"); loadEfectivos(); }
     if (target === "directivas") { showView("view-directivas"); loadDirectivasView(); }
+    if (target === "agenda") { showView("view-agenda"); renderAgenda(); }
+    if (target === "documentos") { showView("view-documentos"); loadDocumentosGenerados(); }
     if (target === "panel") { showView("view-panel"); renderPanel(); }
     if (target === "historial") { showView("view-historial"); loadHistorial(); }
   });
@@ -498,6 +500,64 @@ function renderBandejaAcciones() {
   });
 }
 
+function renderAgenda() {
+  const query = $("buscarAgenda").value.trim().toLowerCase();
+  const acciones = obtenerAccionesPrioritarias().filter((accion) =>
+    !query || `${accion.nombre} ${accion.tipo} ${accion.detalle}`.toLowerCase().includes(query)
+  );
+  $("agendaEmpty").classList.toggle("hidden", acciones.length > 0);
+  $("agendaLista").innerHTML = acciones.map((accion, index) => `
+    <article class="agenda-item ${accion.clase}">
+      <div class="agenda-order">${index + 1}</div>
+      <div class="action-item-copy">
+        <span class="action-type">${escapeHtml(accion.tipo)}</span>
+        <strong>${escapeHtml(accion.nombre)}</strong>
+        <span class="muted small">${escapeHtml(accion.detalle)}</span>
+      </div>
+      <button type="button" class="btn-primary btn-abrir-agenda" data-id="${escapeHtml(accion.caso.id)}">Abrir expediente</button>
+    </article>`).join("");
+  document.querySelectorAll(".btn-abrir-agenda").forEach((btn) => btn.addEventListener("click", () => openCasoDetail(btn.dataset.id)));
+}
+
+$("buscarAgenda").addEventListener("input", renderAgenda);
+
+function exportarAgendaCalendario() {
+  const fechaIcs = (fecha) => String(fecha || new Date().toISOString().slice(0, 10)).slice(0, 10).replaceAll("-", "");
+  const escaparIcs = (texto) => String(texto || "").replace(/[\\,;]/g, "\\$&").replace(/\n/g, "\\n");
+  const eventos = obtenerAccionesPrioritarias().map((accion, index) => {
+    const fecha = accion.tipo === "Plazo vencido" ? fechaLimiteDescargo(accion.caso) : (accion.caso.created_at || new Date().toISOString());
+    const stamp = `${Date.now()}-${index}@notificaciones-pnp`;
+    return ["BEGIN:VEVENT", `UID:${stamp}`, `DTSTAMP:${fechaIcs(new Date().toISOString())}T000000Z`, `DTSTART;VALUE=DATE:${fechaIcs(fecha)}`, `SUMMARY:${escaparIcs(`${accion.tipo}: ${accion.nombre}`)}`, `DESCRIPTION:${escaparIcs(accion.detalle)}`, "END:VEVENT"].join("\r\n");
+  });
+  const contenido = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Notificaciones PNP//Agenda//ES", ...eventos, "END:VCALENDAR"].join("\r\n");
+  saveAs(new Blob([contenido], { type: "text/calendar;charset=utf-8" }), `agenda_notificaciones_${new Date().toISOString().slice(0, 10)}.ics`);
+}
+
+$("btnExportarAgenda").addEventListener("click", exportarAgendaCalendario);
+
+let documentosGenerados = [];
+
+async function loadDocumentosGenerados() {
+  const { data, error } = await supabase.from("documentos_generados").select("*").order("generado_at", { ascending: false });
+  if (error) { console.error(error); return; }
+  documentosGenerados = data || [];
+  await renderDocumentosGenerados();
+}
+
+async function renderDocumentosGenerados() {
+  const query = $("buscarDocumentos").value.trim().toLowerCase();
+  const docs = documentosGenerados.filter((doc) => !query || `${doc.tipo || ""} ${doc.archivo_nombre || ""} ${doc.generado_por_email || ""}`.toLowerCase().includes(query));
+  $("documentosEmpty").classList.toggle("hidden", docs.length > 0);
+  const etiquetas = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción" };
+  const filas = await Promise.all(docs.map(async (doc) => {
+    const enlace = await fileLinkHtml("casos-imputacion-pnp", doc.archivo_path, doc.archivo_nombre);
+    return `<article class="document-item"><div><span class="action-type">${escapeHtml(etiquetas[doc.tipo] || doc.tipo || "Documento")}</span><strong>${escapeHtml(doc.archivo_nombre || "Sin nombre")}</strong><span class="muted small">Generado ${formatFechaHora(String(doc.generado_at || "").slice(0, 10), String(doc.generado_at || "").slice(11, 16))} · ${escapeHtml(doc.generado_por_email || "-")}</span></div><div>${enlace}</div></article>`;
+  }));
+  $("documentosLista").innerHTML = filas.join("");
+}
+
+$("buscarDocumentos").addEventListener("input", () => { renderDocumentosGenerados(); });
+
 function renderCasosTable(list) {
   casosVisibles = list;
   renderResumenRapido();
@@ -750,6 +810,17 @@ function progresoCasoHtml(c) {
   </div>`;
 }
 
+function cronologiaCasoHtml(caso) {
+  const pasos = [
+    { titulo: "Caso registrado", fecha: caso.created_at, listo: true },
+    { titulo: "Imputación notificada", fecha: caso.imputacion_generada_at, listo: !!caso.imputacion_generada_at },
+    { titulo: "Descargo recibido", fecha: caso.fecha_descargo, listo: !!caso.fecha_descargo },
+    { titulo: "Orden de sanción generada", fecha: caso.sancion_generada_at, listo: !!caso.sancion_generada_at },
+    { titulo: "Orden notificada", fecha: caso.orden_notificada_at, listo: !!caso.orden_notificada_at },
+  ];
+  return `<ol class="case-timeline">${pasos.map((paso) => `<li class="${paso.listo ? "is-complete" : ""}"><span class="timeline-dot"></span><div><strong>${paso.titulo}</strong><small>${paso.listo && paso.fecha ? formatDate(String(paso.fecha).slice(0, 10)) : "Pendiente"}</small></div></li>`).join("")}</ol>`;
+}
+
 function colorTema(varName) {
   return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
 }
@@ -931,6 +1002,10 @@ async function renderCasoDetail(caso) {
       <div class="detail-progress">
         <span class="detail-progress-label">Estado del expediente</span>
         ${progresoCasoHtml(caso)}
+      </div>
+      <div class="timeline-card">
+        <div class="detail-card-header"><h3>Ruta del expediente</h3><span class="muted small">Seguimiento cronológico</span></div>
+        ${cronologiaCasoHtml(caso)}
       </div>
       ${!puedeDescargar ? `<p class="muted small">Para poder generar el documento, verifique que el código de infracción sea Leve válido (Anexo I) y que el oficial que constató ("${escapeHtml(caso.oficial_constato || "")}") esté registrado en Efectivos.</p>` : ""}
       <p id="revisionIAResultado" class="muted small hidden"></p>
