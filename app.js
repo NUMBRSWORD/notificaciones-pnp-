@@ -444,8 +444,27 @@ async function loadCasos() {
 
 let casosVisibles = [];
 
+function renderResumenRapido() {
+  const casos = state.casos || [];
+  const pendientes = casos.filter((c) => !c.imputacion_generada_at).length;
+  const vencidos = casos.filter((c) => c.imputacion_generada_at && !c.fecha_descargo && !c.sancion_generada_at && plazoDescargoVencido(c)).length;
+  const conDescargo = casos.filter((c) => c.fecha_descargo && !c.sancion_generada_at).length;
+  $("casosResumenRapido").innerHTML = `
+    <div class="quick-summary-copy">
+      <span class="eyebrow">Vista rápida</span>
+      <strong>${casos.length ? "Así está la carga de trabajo hoy" : "Aún no hay expedientes registrados"}</strong>
+      <span class="muted small">${casos.length ? "Priorice los casos con plazo vencido o documentos pendientes." : "Cree el primer caso para iniciar el seguimiento."}</span>
+    </div>
+    <div class="quick-summary-stats">
+      <div><b>${pendientes}</b><span>por notificar</span></div>
+      <div class="${vencidos ? "is-urgent" : ""}"><b>${vencidos}</b><span>plazo vencido</span></div>
+      <div><b>${conDescargo}</b><span>con descargo</span></div>
+    </div>`;
+}
+
 function renderCasosTable(list) {
   casosVisibles = list;
+  renderResumenRapido();
   const tbody = $("casosTableBody");
   tbody.innerHTML = "";
   $("casosEmpty").classList.toggle("hidden", list.length > 0);
@@ -458,7 +477,7 @@ function renderCasosTable(list) {
       <td>${formatDate(c.fecha_hecho)}</td>
       <td>${escapeHtml(c.codigo_infraccion || "")}</td>
       <td>${escapeHtml(c.oficial_constato || "-")}</td>
-      <td>${c.imputacion_generada_at ? '<span class="pill pill-yes">Sí</span>' : '<span class="pill pill-no">Pendiente</span>'}</td>
+      <td>${progresoCasoHtml(c)}</td>
       <td class="row-actions">${puedeDescargar ? `<button type="button" class="btn-secondary btn-descargar-imputacion" title="Descargar Inicio de Imputación de Infracción Leve">⬇ Imputación</button>` : ""} <span class="row-chevron">›</span></td>
     `;
     tr.addEventListener("click", () => openCasoDetail(c.id));
@@ -677,6 +696,23 @@ function estadoDeCaso(c) {
   return "Plazo de descargo vigente";
 }
 
+function claseEstadoCaso(c) {
+  if (c.sancion_generada_at) return "pill-yes";
+  if (c.fecha_descargo) return "pill-info";
+  if (c.imputacion_generada_at && plazoDescargoVencido(c)) return "pill-danger";
+  if (c.imputacion_generada_at) return "pill-warning";
+  return "pill-neutral";
+}
+
+function progresoCasoHtml(c) {
+  const paso = c.sancion_generada_at ? 4 : c.fecha_descargo ? 3 : c.imputacion_generada_at ? 2 : 1;
+  const etiquetas = ["Registro", "Imputación", "Descargo", "Sanción"];
+  return `<div class="case-progress" title="${escapeHtml(estadoDeCaso(c))}">
+    <div class="case-progress-steps">${etiquetas.map((etiqueta, i) => `<span class="${i + 1 <= paso ? "is-done" : ""} ${i + 1 === paso ? "is-current" : ""}">${i + 1}</span>`).join("")}</div>
+    <span class="pill ${claseEstadoCaso(c)}">${escapeHtml(estadoDeCaso(c))}</span>
+  </div>`;
+}
+
 function colorTema(varName) {
   return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
 }
@@ -854,6 +890,10 @@ async function renderCasoDetail(caso) {
           ${puedeDescargar ? `<button type="button" class="btn-secondary" id="btnRevisarConsistencia">🔍 Revisar con IA</button>` : ""}
           <button type="button" class="btn-secondary" id="btnDescargarImputacion" ${puedeDescargar ? "" : "disabled"}>⬇ Descargar Imputación</button>
         </div>
+      </div>
+      <div class="detail-progress">
+        <span class="detail-progress-label">Estado del expediente</span>
+        ${progresoCasoHtml(caso)}
       </div>
       ${!puedeDescargar ? `<p class="muted small">Para poder generar el documento, verifique que el código de infracción sea Leve válido (Anexo I) y que el oficial que constató ("${escapeHtml(caso.oficial_constato || "")}") esté registrado en Efectivos.</p>` : ""}
       <p id="revisionIAResultado" class="muted small hidden"></p>
