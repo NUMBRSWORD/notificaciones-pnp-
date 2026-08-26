@@ -462,9 +462,46 @@ function renderResumenRapido() {
     </div>`;
 }
 
+function obtenerAccionesPrioritarias() {
+  return (state.casos || []).flatMap((caso) => {
+    const nombre = `${caso.grado || ""} ${caso.apellidos || ""} ${caso.nombres || ""}`.replace(/\s+/g, " ").trim() || "Caso sin nombre";
+    if (caso.imputacion_generada_at && !caso.fecha_descargo && !caso.sancion_generada_at && plazoDescargoVencido(caso)) {
+      return [{ caso, nombre, prioridad: 1, tipo: "Plazo vencido", detalle: "Defina el siguiente trámite: acta de no descargo u orden de sanción.", clase: "is-urgent" }];
+    }
+    if (caso.fecha_descargo && !caso.sancion_generada_at) {
+      return [{ caso, nombre, prioridad: 2, tipo: "Descargo recibido", detalle: "Revise el descargo y prepare la orden de sanción.", clase: "is-ready" }];
+    }
+    if (!caso.imputacion_generada_at) {
+      return [{ caso, nombre, prioridad: 3, tipo: "Generar imputación", detalle: "Complete o verifique los datos para notificar la imputación.", clase: "is-pending" }];
+    }
+    return [];
+  }).sort((a, b) => a.prioridad - b.prioridad);
+}
+
+function renderBandejaAcciones() {
+  const acciones = obtenerAccionesPrioritarias();
+  const bandeja = $("bandejaAcciones");
+  bandeja.classList.toggle("hidden", acciones.length === 0);
+  if (!acciones.length) return;
+  $("bandejaAccionesCount").textContent = `${acciones.length} pendiente${acciones.length === 1 ? "" : "s"}`;
+  $("bandejaAccionesLista").innerHTML = acciones.slice(0, 5).map((accion) => `
+    <article class="action-item ${accion.clase}">
+      <div class="action-item-copy">
+        <span class="action-type">${escapeHtml(accion.tipo)}</span>
+        <strong>${escapeHtml(accion.nombre)}</strong>
+        <span class="muted small">${escapeHtml(accion.detalle)}</span>
+      </div>
+      <button type="button" class="btn-secondary btn-abrir-accion" data-id="${escapeHtml(accion.caso.id)}">Resolver</button>
+    </article>`).join("");
+  document.querySelectorAll(".btn-abrir-accion").forEach((btn) => {
+    btn.addEventListener("click", () => openCasoDetail(btn.dataset.id));
+  });
+}
+
 function renderCasosTable(list) {
   casosVisibles = list;
   renderResumenRapido();
+  renderBandejaAcciones();
   const tbody = $("casosTableBody");
   tbody.innerHTML = "";
   $("casosEmpty").classList.toggle("hidden", list.length > 0);
