@@ -30,6 +30,34 @@ Reglas estrictas:
 - Si no se te dio lista de antecedentes o está vacía, no menciones antecedentes en el análisis.
 - Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con exactamente estas claves: {"resumen_descargo": "...", "tercio_value": "...", "analisis_texto": "..."}`;
 
+const SYSTEM_PROMPT_RESUMEN = `Resume fielmente una parte de un descargo disciplinario de la PNP. Identifica solamente los argumentos, hechos alegados, fechas, documentos y medios probatorios mencionados en esta parte. No evalúes la responsabilidad, no elijas sanción y no inventes información. El resultado se combinará con otras partes antes del análisis jurídico final.`;
+
+const HERRAMIENTA_ANALISIS = {
+  name: "entregar_analisis",
+  description: "Devuelve el análisis disciplinario completo con el formato solicitado.",
+  input_schema: {
+    type: "object",
+    properties: {
+      resumen_descargo: { type: "string" },
+      tercio_value: { type: "string" },
+      analisis_texto: { type: "string" },
+    },
+    required: ["resumen_descargo", "tercio_value", "analisis_texto"],
+    additionalProperties: false,
+  },
+};
+
+const HERRAMIENTA_RESUMEN = {
+  name: "entregar_resumen_descargo",
+  description: "Devuelve el resumen fiel de una parte del descargo.",
+  input_schema: {
+    type: "object",
+    properties: { resumen_descargo: { type: "string" } },
+    required: ["resumen_descargo"],
+    additionalProperties: false,
+  },
+};
+
 function recortarTexto(texto: unknown, limite: number, etiqueta: string): string {
   const limpio = String(texto || "").trim();
   if (limpio.length <= limite) return limpio;
@@ -79,6 +107,8 @@ Deno.serve(async (req: Request) => {
 
   try {
     const input = await req.json();
+    const esResumenDeBloque = input.modo === "resumir_bloque";
+    const herramienta = esResumenDeBloque ? HERRAMIENTA_RESUMEN : HERRAMIENTA_ANALISIS;
 
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -89,8 +119,10 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2400,
-        system: SYSTEM_PROMPT,
+        max_tokens: esResumenDeBloque ? 900 : 4000,
+        system: esResumenDeBloque ? SYSTEM_PROMPT_RESUMEN : SYSTEM_PROMPT,
+        tools: [herramienta],
+        tool_choice: { type: "tool", name: herramienta.name },
         messages: [{ role: "user", content: buildUserMessage(input) }],
       }),
     });
@@ -104,15 +136,19 @@ Deno.serve(async (req: Request) => {
     }
 
     const data = await resp.json();
-    const text = (data.content || []).map((b: { text?: string }) => b.text || "").join("");
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) {
-      return new Response(JSON.stringify({ error: "La IA no devolvió un formato reconocible. Intente de nuevo." }), {
+    const toolUse = (data.content || []).find((block: { type?: string; name?: string; input?: Record<string, unknown> }) =>
+      block.type === "tool_use" && block.name === herramienta.name
+    );
+    if (!toolUse?.input) {
+      const motivo = data.stop_reason === "max_tokens"
+        ? "La respuesta de IA fue demasiado extensa. Intente nuevamente."
+        : "La IA no devolvió el resultado estructurado esperado. Intente de nuevo.";
+      return new Response(JSON.stringify({ error: motivo }), {
         status: 502,
         headers: { ...cors, "Content-Type": "application/json" },
       });
     }
-    const parsed = JSON.parse(match[0]);
+    const parsed = toolUse.input;
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...cors, "Content-Type": "application/json" },
