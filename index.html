@@ -85,7 +85,10 @@
   <!-- DASHBOARD: CASOS -->
   <section id="view-dashboard" class="view hidden">
     <div class="view-header">
-      <h2>Casos</h2>
+      <div>
+        <h2>Expedientes</h2>
+        <p class="muted view-subtitle">Revise el avance de cada caso y continúe desde el siguiente paso pendiente.</p>
+      </div>
       <div class="view-actions">
         <input id="searchCasos" type="search" placeholder="Buscar por nombre, apellido o código..." />
         <label class="inline-filter">Desde <input id="filtroDesde" type="date" /></label>
@@ -96,6 +99,7 @@
         <button id="btnNuevoCaso" class="btn-primary">+ Nuevo caso</button>
       </div>
     </div>
+    <div id="casosResumenRapido" class="quick-summary" aria-live="polite"></div>
     <div id="resumenEjecutivoPanel" class="detail-card hidden" style="margin-bottom:16px">
       <div class="detail-card-header">
         <h3>Resumen ejecutivo (IA)</h3>
@@ -113,7 +117,7 @@
             <th>Fecha del hecho</th>
             <th>Código infracción</th>
             <th>Oficial que constató</th>
-            <th>Notificado</th>
+            <th>Etapa actual</th>
             <th></th>
           </tr>
         </thead>
@@ -223,10 +227,14 @@
 <div id="modalNuevoCaso" class="modal-overlay hidden">
   <div class="modal">
     <div class="modal-header">
-      <h3>Nuevo caso</h3>
+      <div>
+        <h3>Nuevo caso</h3>
+        <p class="muted small modal-subtitle">Complete los datos en este orden para generar la imputación sin observaciones.</p>
+      </div>
       <button id="btnCerrarModal" class="btn-ghost">✕</button>
     </div>
     <form id="casoForm" class="modal-body">
+      <p class="form-section-title"><span>1</span> Identificación del investigado</p>
       <div class="lookup-row">
         <label class="grow">Buscar efectivo por CIP o DNI
           <input type="text" id="lookupCipDni" placeholder="Ej. 337635 o 40482528" />
@@ -254,6 +262,7 @@
       </div>
       <p id="infraccionPreview" class="muted small hidden"></p>
 
+      <p class="form-section-title"><span>2</span> Hecho e infracción</p>
       <label>Fecha del hecho
         <input type="date" id="fFechaHecho" required />
       </label>
@@ -266,6 +275,7 @@
       </div>
       <p id="hechoIAStatus" class="muted small hidden"></p>
       <p id="codigoIASugerencia" class="muted small hidden"></p>
+      <p class="form-section-title"><span>3</span> Responsable y sustento</p>
       <label>Unidad / Sub-unidad del investigado
         <input type="text" id="fUnidad" value="DIVOPUS 3-CPNP VENTANILLA." required />
       </label>
