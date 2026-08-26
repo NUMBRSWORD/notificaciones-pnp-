@@ -139,6 +139,19 @@ main { max-width: 1500px; margin: 0 auto; padding: 24px 20px 60px; }
 .quick-summary-stats span { display: block; color: var(--text-muted); font-size: 0.76rem; margin-top: 2px; }
 .quick-summary-stats .is-urgent b { color: var(--danger); }
 
+.action-tray { margin: 0 0 18px; padding: 18px 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+.action-tray-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.action-tray-header h3 { margin: 3px 0 0; font-size: 1rem; }
+.action-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 10px; }
+.action-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 104px; padding: 14px; border: 1px solid var(--border); border-left: 3px solid var(--text-muted); border-radius: 8px; background: var(--bg-elev); }
+.action-item.is-urgent { border-left-color: var(--danger); }
+.action-item.is-ready { border-left-color: #69aaf0; }
+.action-item.is-pending { border-left-color: #e5ad53; }
+.action-item-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.action-item-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-type { color: var(--accent); font-size: 0.74rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.action-item .btn-secondary { flex-shrink: 0; }
+
 .center-view {
   min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
 }
@@ -351,6 +364,8 @@ tbody tr:last-child td { border-bottom: none; }
   .quick-summary { align-items: flex-start; flex-direction: column; gap: 14px; }
   .quick-summary-stats { width: 100%; }
   .quick-summary-stats > div { flex: 1; min-width: 0; padding: 8px 6px; }
+  .action-item { align-items: flex-start; flex-direction: column; }
+  .action-item .btn-secondary { width: 100%; }
   .detail-progress { align-items: flex-start; flex-direction: column; }
   .asistente-widget { right: 12px; bottom: 12px; }
   .asistente-fab { right: 16px; bottom: 16px; }
