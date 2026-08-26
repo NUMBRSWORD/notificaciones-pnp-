@@ -1281,6 +1281,43 @@ function prepararDirectivasParaAnalisis(directivas, limiteTotal = 45000) {
   }).filter(Boolean);
 }
 
+const CARACTERES_POR_BLOQUE_DESCARGO = 40000;
+
+function dividirDescargoEnBloques(texto, limite = CARACTERES_POR_BLOQUE_DESCARGO) {
+  const limpio = String(texto || "").trim();
+  if (!limpio || limpio.length <= limite) return limpio ? [limpio] : [];
+
+  const bloques = [];
+  let bloqueActual = "";
+  for (const parrafo of limpio.split(/\n\s*\n/)) {
+    const fragmento = parrafo.trim();
+    if (!fragmento) continue;
+    if (fragmento.length > limite) {
+      if (bloqueActual) bloques.push(bloqueActual);
+      for (let inicio = 0; inicio < fragmento.length; inicio += limite) {
+        bloques.push(fragmento.slice(inicio, inicio + limite));
+      }
+      bloqueActual = "";
+      continue;
+    }
+    if (bloqueActual && bloqueActual.length + fragmento.length + 2 > limite) {
+      bloques.push(bloqueActual);
+      bloqueActual = fragmento;
+    } else {
+      bloqueActual += `${bloqueActual ? "\n\n" : ""}${fragmento}`;
+    }
+  }
+  if (bloqueActual) bloques.push(bloqueActual);
+  return bloques;
+}
+
+async function invocarAnalisisDescargoIA(body) {
+  const { data, error } = await supabase.functions.invoke("analizar-descargo-sancion", { body });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data || {};
+}
+
 async function detalleErrorAnalisisIA(err) {
   const respuesta = err?.context;
   if (respuesta?.clone) {
@@ -1317,23 +1354,41 @@ async function analizarDescargoConIA(caso) {
       directivasParaIA(state.directivas.length ? state.directivas : await listarDirectivas(supabase))
     );
     const antecedentes = buscarAntecedentes(caso, state.casos);
+    const datosBase = {
+      investigadoCompleto: `${caso.grado || ""} ${caso.apellidos || ""} ${caso.nombres || ""}`.replace(/\s+/g, " ").trim(),
+      codigoInfraccion: normalizarCodigoInfraccion(caso.codigo_infraccion),
+      infraccionTexto: infraccion?.infraccion || "",
+      sancionTexto: infraccion?.sancion || "",
+      descripcionHecho: caso.descripcion_hecho || "",
+      tercios: opciones.map((o) => ({ value: o.value, label: o.label, extremo: o.extremo })),
+    };
+
+    const bloques = dividirDescargoEnBloques(textoDescargo);
+    let textoParaAnalisis = textoDescargo;
+    if (bloques.length > 1) {
+      const resumenes = [];
+      for (let indice = 0; indice < bloques.length; indice += 1) {
+        statusEl.textContent = `Leyendo el descargo: parte ${indice + 1} de ${bloques.length}...`;
+        const resultadoBloque = await invocarAnalisisDescargoIA({
+          ...datosBase,
+          textoDescargo: bloques[indice],
+          antecedentes: [],
+          directivas: [],
+        });
+        const resumen = String(resultadoBloque.resumen_descargo || "").trim();
+        if (resumen) resumenes.push(`Parte ${indice + 1}: ${resumen}`);
+      }
+      if (!resumenes.length) throw new Error("No se pudo obtener un resumen de las partes del descargo.");
+      textoParaAnalisis = `El siguiente es un resumen completo por partes de un descargo extenso (${bloques.length} partes). Valore todas las partes como un solo descargo:\n\n${resumenes.join("\n\n")}`;
+    }
 
     statusEl.textContent = "Analizando el descargo con IA...";
-    const { data, error } = await supabase.functions.invoke("analizar-descargo-sancion", {
-      body: {
-        investigadoCompleto: `${caso.grado || ""} ${caso.apellidos || ""} ${caso.nombres || ""}`.replace(/\s+/g, " ").trim(),
-        codigoInfraccion: normalizarCodigoInfraccion(caso.codigo_infraccion),
-        infraccionTexto: infraccion?.infraccion || "",
-        sancionTexto: infraccion?.sancion || "",
-        descripcionHecho: caso.descripcion_hecho || "",
-        tercios: opciones.map((o) => ({ value: o.value, label: o.label, extremo: o.extremo })),
-        antecedentes,
-        textoDescargo: recortarTextoParaIA(textoDescargo, 50000, "el descargo"),
-        directivas,
-      },
+    const data = await invocarAnalisisDescargoIA({
+      ...datosBase,
+      antecedentes,
+      textoDescargo: textoParaAnalisis,
+      directivas,
     });
-    if (error) throw error;
-    if (data?.error) throw new Error(data.error);
     if (data?.resumen_descargo) $("sSancionDescargo").value = data.resumen_descargo;
     if (data?.analisis_texto) {
       $("sSancionAnalisis").value = data.analisis_texto;
