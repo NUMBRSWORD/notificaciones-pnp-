@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const MODEL = "claude-sonnet-5";
+const MAX_DESCARGO_CHARS = 50000;
+const MAX_DIRECTIVAS_CHARS = 45000;
 
 const SYSTEM_PROMPT = `Eres un asesor legal que evalúa el descargo presentado por un investigado en un procedimiento disciplinario de la Policía Nacional del Perú (PNP), conforme a la Ley N° 30714 - Ley que regula el Régimen Disciplinario de la PNP, para ayudar a redactar la "Orden de Sanción".
 
@@ -28,13 +30,25 @@ Reglas estrictas:
 - Si no se te dio lista de antecedentes o está vacía, no menciones antecedentes en el análisis.
 - Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con exactamente estas claves: {"resumen_descargo": "...", "tercio_value": "...", "analisis_texto": "..."}`;
 
+function recortarTexto(texto: unknown, limite: number, etiqueta: string): string {
+  const limpio = String(texto || "").trim();
+  if (limpio.length <= limite) return limpio;
+  const inicio = Math.ceil(limite * 0.7);
+  const cierre = limite - inicio;
+  return `${limpio.slice(0, inicio)}\n\n[Se omitió una parte extensa de ${etiqueta} para mantener el análisis dentro del límite.]\n\n${limpio.slice(-cierre)}`;
+}
+
 function buildUserMessage(input: Record<string, unknown>): string {
   const antecedentes = Array.isArray(input.antecedentes) ? input.antecedentes : [];
   const directivas = Array.isArray(input.directivas) ? input.directivas : [];
+  let caracteresDisponibles = MAX_DIRECTIVAS_CHARS;
   const directivasTexto = directivas.length
-    ? directivas.map((d: { titulo?: string; numero_documento?: string; contenido?: string }, i: number) =>
-        `--- Directiva ${i + 1}: ${d.titulo || "(sin título)"}${d.numero_documento ? ` (${d.numero_documento})` : ""} ---\n${d.contenido || ""}`
-      ).join("\n\n")
+    ? directivas.map((d: { titulo?: string; numero_documento?: string; contenido?: string }, i: number) => {
+        if (caracteresDisponibles <= 0) return null;
+        const contenido = recortarTexto(d.contenido, caracteresDisponibles, "las directivas internas");
+        caracteresDisponibles -= contenido.length;
+        return `--- Directiva ${i + 1}: ${d.titulo || "(sin título)"}${d.numero_documento ? ` (${d.numero_documento})` : ""} ---\n${contenido}`;
+      }).filter(Boolean).join("\n\n")
     : "(no se proporcionaron directivas internas al sistema; si el descargo invoca una circunstancia que normalmente requeriría una, dilo expresamente en vez de asumir requisitos)";
   return [
     `Investigado: ${input.investigadoCompleto || ""}`,
@@ -44,7 +58,7 @@ function buildUserMessage(input: Record<string, unknown>): string {
     `Descripción del hecho ya constatado: ${input.descripcionHecho || ""}`,
     `Opciones de tercio disponibles (elige el "value" de una, exactamente): ${JSON.stringify(input.tercios || [])}`,
     `Antecedentes disciplinarios previos de este investigado en el sistema (${antecedentes.length}): ${JSON.stringify(antecedentes)}`,
-    `Texto extraído del descargo presentado por el investigado, puede tener ruido de OCR:\n${input.textoDescargo || "(no se pudo extraer texto)"}`,
+    `Texto extraído del descargo presentado por el investigado, puede tener ruido de OCR:\n${recortarTexto(input.textoDescargo, MAX_DESCARGO_CHARS, "el descargo") || "(no se pudo extraer texto)"}`,
     `Directivas internas vigentes proporcionadas por el administrador:\n${directivasTexto}`,
   ].filter(Boolean).join("\n");
 }

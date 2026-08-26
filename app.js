@@ -1259,6 +1259,41 @@ async function extraerTextoDescargo(caso, onEstado) {
   return "";
 }
 
+// La lectura de un PDF puede incluir cientos de páginas, sellos repetidos o
+// texto OCR. Enviar todo a la vez puede hacer que el proveedor rechace la
+// petición por tamaño. Se conserva el inicio y el cierre, donde normalmente
+// están los fundamentos y la firma del descargo, y se informa la omisión.
+function recortarTextoParaIA(texto, limite, etiqueta) {
+  const limpio = String(texto || "").trim();
+  if (limpio.length <= limite) return limpio;
+  const inicio = Math.ceil(limite * 0.7);
+  const cierre = limite - inicio;
+  return `${limpio.slice(0, inicio)}\n\n[Se omitió una parte extensa de ${etiqueta} para que el análisis pueda continuar.]\n\n${limpio.slice(-cierre)}`;
+}
+
+function prepararDirectivasParaAnalisis(directivas, limiteTotal = 45000) {
+  let disponible = limiteTotal;
+  return (directivas || []).map((directiva) => {
+    if (disponible <= 0) return null;
+    const contenido = recortarTextoParaIA(directiva.contenido, disponible, "las directivas internas");
+    disponible -= contenido.length;
+    return { ...directiva, contenido };
+  }).filter(Boolean);
+}
+
+async function detalleErrorAnalisisIA(err) {
+  const respuesta = err?.context;
+  if (respuesta?.clone) {
+    try {
+      const cuerpo = await respuesta.clone().json();
+      if (cuerpo?.error) return cuerpo.error;
+    } catch (_) {
+      // Cuando la respuesta no es JSON se usa el mensaje estándar de abajo.
+    }
+  }
+  return err?.message || String(err);
+}
+
 async function analizarDescargoConIA(caso) {
   const btn = $("btnAnalizarDescargoIA");
   const statusEl = $("sancionIAStatus");
@@ -1278,7 +1313,9 @@ async function analizarDescargoConIA(caso) {
     }
 
     statusEl.textContent = "Consultando directivas internas y antecedentes...";
-    const directivas = directivasParaIA(state.directivas.length ? state.directivas : await listarDirectivas(supabase));
+    const directivas = prepararDirectivasParaAnalisis(
+      directivasParaIA(state.directivas.length ? state.directivas : await listarDirectivas(supabase))
+    );
     const antecedentes = buscarAntecedentes(caso, state.casos);
 
     statusEl.textContent = "Analizando el descargo con IA...";
@@ -1291,7 +1328,7 @@ async function analizarDescargoConIA(caso) {
         descripcionHecho: caso.descripcion_hecho || "",
         tercios: opciones.map((o) => ({ value: o.value, label: o.label, extremo: o.extremo })),
         antecedentes,
-        textoDescargo,
+        textoDescargo: recortarTextoParaIA(textoDescargo, 50000, "el descargo"),
         directivas,
       },
     });
@@ -1310,7 +1347,7 @@ async function analizarDescargoConIA(caso) {
   } catch (err) {
     console.error(err);
     statusEl.classList.add("hidden");
-    errEl.textContent = "No se pudo analizar con IA: " + (err.message || err);
+    errEl.textContent = "No se pudo analizar con IA: " + await detalleErrorAnalisisIA(err);
     errEl.classList.remove("hidden");
   } finally {
     btn.disabled = false;
