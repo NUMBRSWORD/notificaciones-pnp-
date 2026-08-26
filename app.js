@@ -1371,6 +1371,7 @@ async function analizarDescargoConIA(caso) {
         statusEl.textContent = `Leyendo el descargo: parte ${indice + 1} de ${bloques.length}...`;
         const resultadoBloque = await invocarAnalisisDescargoIA({
           ...datosBase,
+          modo: "resumir_bloque",
           textoDescargo: bloques[indice],
           antecedentes: [],
           directivas: [],
