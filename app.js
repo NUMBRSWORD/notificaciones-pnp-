@@ -1355,9 +1355,16 @@ async function analizarDescargoConIA(caso) {
   statusEl.classList.remove("hidden");
   try {
     let textoDescargo = $("sSancionDescargo").value.trim();
+    // Las órdenes creadas antes de esta corrección pudieron guardar una frase
+    // genérica. No debe analizarse como si fuera el descargo: se vuelve a leer
+    // el archivo original para obtener sus argumentos reales.
+    if (esResumenDescargoInsuficiente(textoDescargo)) textoDescargo = "";
     if (!textoDescargo && caso.archivo_descargo_path) {
       statusEl.textContent = "Leyendo el archivo del descargo ya subido...";
       textoDescargo = (await extraerTextoDescargo(caso, (msg) => { statusEl.textContent = msg; })).trim();
+    }
+    if (!textoDescargo) {
+      throw new Error("No se encontró texto legible del descargo. Revise que el archivo esté cargado o escriba un resumen manual.");
     }
 
     statusEl.textContent = "Consultando directivas internas y antecedentes...";
