@@ -9,6 +9,7 @@ import { getInfraccion, normalizarCodigoInfraccion, ANEXO_I } from "./lib/anexoI
 import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva, subirArchivoDirectiva } from "./lib/directivas.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
+import { nombreCompletoVisible } from "./lib/utils.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -168,7 +169,12 @@ async function registrarVersionDocumento(casoId, tipo, blob, nombreArchivo) {
 }
 
 function nombreArchivoDocumento(prefijo, caso) {
-  return `${prefijo} - ${(caso.grado || "").trim()} ${(caso.nombres || "").trim()} ${(caso.apellidos || "").trim()}.docx`.replace(/\s+/g, " ").trim();
+  return `${prefijo} - ${nombreInvestigadoVisible(caso, true)}.docx`.replace(/\s+/g, " ").trim();
+}
+
+function nombreInvestigadoVisible(caso, incluirGrado = false) {
+  const nombre = nombreCompletoVisible(caso?.apellidos, caso?.nombres);
+  return `${incluirGrado ? (caso?.grado || "").trim() : ""} ${nombre}`.replace(/\s+/g, " ").trim();
 }
 
 // ---------- View switching ----------
@@ -466,7 +472,7 @@ function renderResumenRapido() {
 
 function obtenerAccionesPrioritarias() {
   return (state.casos || []).flatMap((caso) => {
-    const nombre = `${caso.grado || ""} ${caso.nombres || ""} ${caso.apellidos || ""}`.replace(/\s+/g, " ").trim() || "Caso sin nombre";
+    const nombre = nombreInvestigadoVisible(caso, true) || "Caso sin nombre";
     if (caso.imputacion_generada_at && !caso.fecha_descargo && !caso.sancion_generada_at && plazoDescargoVencido(caso)) {
       return [{ caso, nombre, prioridad: 1, tipo: "Plazo vencido", detalle: "Defina el siguiente trámite: acta de no descargo u orden de sanción.", clase: "is-urgent" }];
     }
@@ -570,7 +576,7 @@ function renderCasosTable(list) {
     const puedeDescargar = puedeGenerarImputacion(c, state.efectivos);
     tr.innerHTML = `
       <td>${escapeHtml(c.grado || "")}</td>
-      <td>${escapeHtml(c.nombres || "")} ${escapeHtml(c.apellidos || "")}</td>
+      <td>${escapeHtml(nombreInvestigadoVisible(c))}</td>
       <td>${formatDate(c.fecha_hecho)}</td>
       <td>${escapeHtml(c.codigo_infraccion || "")}</td>
       <td>${escapeHtml(c.oficial_constato || "-")}</td>
@@ -682,7 +688,7 @@ $("btnLimpiarFiltroFecha").addEventListener("click", () => {
 // ---------- Resumen ejecutivo (IA) ----------
 function construirResumenEstadoCasos() {
   return state.casos.map((c) => ({
-    investigado: `${c.grado || ""} ${c.nombres || ""} ${c.apellidos || ""}`.replace(/\s+/g, " ").trim(),
+    investigado: nombreInvestigadoVisible(c, true),
     codigo_infraccion: c.codigo_infraccion || null,
     fecha_hecho: c.fecha_hecho || null,
     imputacion_notificada: !!c.imputacion_generada_at,
@@ -925,7 +931,7 @@ $("btnExportarExcel").addEventListener("click", () => {
   if (!casosVisibles.length) { alert("No hay casos para exportar (revise el buscador)."); return; }
   const filas = casosVisibles.map((c) => ({
     "Grado": c.grado || "",
-    "Nombres y apellidos": `${c.nombres || ""} ${c.apellidos || ""}`.trim(),
+    "Nombres y apellidos": nombreInvestigadoVisible(c),
     "Fecha del hecho": formatDate(c.fecha_hecho),
     "Código infracción": c.codigo_infraccion || "",
     "Descripción del hecho": c.descripcion_hecho || "",
@@ -993,7 +999,7 @@ async function renderCasoDetail(caso) {
   $("casoDetailContent").innerHTML = `
     <div class="detail-card">
       <div class="detail-card-header">
-        <h3>${escapeHtml(caso.grado || "")} ${escapeHtml(caso.nombres || "")} ${escapeHtml(caso.apellidos || "")}</h3>
+        <h3>${escapeHtml(nombreInvestigadoVisible(caso, true))}</h3>
         <div style="display:flex; gap:8px">
           ${puedeDescargar ? `<button type="button" class="btn-secondary" id="btnRevisarConsistencia">🔍 Revisar con IA</button>` : ""}
           <button type="button" class="btn-secondary" id="btnDescargarImputacion" ${puedeDescargar ? "" : "disabled"}>⬇ Descargar Imputación</button>
@@ -1355,7 +1361,7 @@ async function analizarDescargoConIA(caso) {
     );
     const antecedentes = buscarAntecedentes(caso, state.casos);
     const datosBase = {
-      investigadoCompleto: `${caso.grado || ""} ${caso.nombres || ""} ${caso.apellidos || ""}`.replace(/\s+/g, " ").trim(),
+      investigadoCompleto: nombreInvestigadoVisible(caso, true),
       codigoInfraccion: normalizarCodigoInfraccion(caso.codigo_infraccion),
       infraccionTexto: infraccion?.infraccion || "",
       sancionTexto: infraccion?.sancion || "",
@@ -1433,7 +1439,7 @@ async function verificarNotificacionOrdenIA(caso) {
     const { data, error } = await supabase.functions.invoke("revisar-documento-ia", {
       body: {
         tipo: "notificacion_orden",
-        investigadoCompleto: `${caso.grado || ""} ${caso.nombres || ""} ${caso.apellidos || ""}`.replace(/\s+/g, " ").trim(),
+        investigadoCompleto: nombreInvestigadoVisible(caso, true),
         codigoInfraccion: normalizarCodigoInfraccion(caso.codigo_infraccion),
         sancionImpuesta,
         textoDocumento,
