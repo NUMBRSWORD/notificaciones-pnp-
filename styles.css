@@ -301,6 +301,32 @@ tbody tr:last-child td { border-bottom: none; }
 .case-timeline .is-complete { color: var(--text); }
 .case-timeline .is-complete .timeline-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
+/* Control de calidad previo y datos que se insertarán en los documentos. */
+.quality-panel, .document-preview { margin: 18px 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elev); }
+.quality-header strong, .quality-header span { display: block; }
+.quality-header span { margin-top: 3px; font-size: 0.82rem; color: var(--text-muted); }
+.quality-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+.quality-check { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
+.quality-check-title { display: flex; align-items: center; gap: 8px; }
+.quality-icon { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.76rem; font-weight: 800; }
+.quality-status { margin-left: auto; font-size: 0.72rem; font-weight: 700; }
+.quality-check p, .quality-check ul { margin: 9px 0 0; color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; }
+.quality-check ul { padding-left: 18px; }
+.quality-ok { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.quality-ok .quality-icon { color: #fff; background: var(--accent); }
+.quality-ok .quality-status { color: var(--accent); }
+.quality-bloqueado { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.quality-bloqueado .quality-icon { color: #fff; background: var(--danger); }
+.quality-bloqueado .quality-status { color: var(--danger); }
+.quality-info .quality-icon { color: #fff; background: var(--accent); }
+.quality-info .quality-status { color: var(--accent); }
+.document-preview { border-color: var(--accent); }
+.document-preview h3 { font-size: 0.98rem; }
+.preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 12px 0 0; }
+.preview-grid > div { padding: 10px 12px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-card); }
+.preview-grid dt { color: var(--text-muted); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+.preview-grid dd { margin: 5px 0 0; font-size: 0.88rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* Botón "Descargar Imputación" dentro de la tabla de notas */
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; white-space: nowrap; }
 .row-actions .btn-secondary { padding: 6px 10px; font-size: 0.8rem; }
@@ -395,6 +421,7 @@ tbody tr:last-child td { border-bottom: none; }
 
 @media (max-width: 640px) {
   .grid-2, .detail-grid { grid-template-columns: 1fr; }
+  .preview-grid { grid-template-columns: 1fr; }
   .topbar-inner { flex-wrap: wrap; }
   .tabs { order: 3; width: 100%; }
   .user-box { width: 100%; justify-content: space-between; }

@@ -2,9 +2,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.mjs";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SCHEMA } from "./config.js";
-import { renderizarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato, tokens } from "./lib/imputacion.js";
-import { renderizarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo } from "./lib/actaNoDescargo.js";
-import { renderizarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault } from "./lib/ordenSancion.js";
+import { renderizarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato, tokens, construirDatosImputacion } from "./lib/imputacion.js";
+import { renderizarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo, buscarInvestigado, construirDatosActaNoDescargo } from "./lib/actaNoDescargo.js";
+import { renderizarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault, construirDatosOrdenSancion } from "./lib/ordenSancion.js";
 import { getInfraccion, normalizarCodigoInfraccion, ANEXO_I } from "./lib/anexoI.js";
 import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva, subirArchivoDirectiva } from "./lib/directivas.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
@@ -180,6 +180,163 @@ function nombreInvestigadoVisible(caso, incluirGrado = false) {
 function esResumenDescargoInsuficiente(texto) {
   const resumen = String(texto || "").replace(/\s+/g, " ").trim();
   return !resumen || /^El descargo presentado debe ser valorado junto con el archivo original\.?$/i.test(resumen);
+}
+
+// ---------- Control de calidad y vista previa de documentos ----------
+// Estas comprobaciones usan los mismos criterios que los generadores. Así el
+// oficial puede corregir todos los datos pendientes antes de descargar un
+// documento, en vez de descubrirlos uno por uno al final.
+function datosSeleccionOrdenDesdePantalla() {
+  return {
+    tercioValue: document.querySelector('input[name="sancionTercio"]:checked')?.value || "",
+    analisisTexto: $("sSancionAnalisis")?.value.trim() || "",
+    descargoTexto: $("sSancionDescargo")?.value.trim() || "",
+  };
+}
+
+function bloqueosBaseExpediente(caso) {
+  const bloqueos = [];
+  if (!caso.fecha_hecho) bloqueos.push("Falta registrar la fecha del hecho.");
+  if (!String(caso.apellidos || "").trim() || !String(caso.nombres || "").trim()) {
+    bloqueos.push("Faltan los nombres o apellidos del investigado.");
+  }
+  if (!normalizarCodigoInfraccion(caso.codigo_infraccion) || !getInfraccion(caso.codigo_infraccion)) {
+    bloqueos.push("El código de infracción no es un código Leve válido del Anexo I.");
+  }
+  if (!String(caso.descripcion_hecho || "").trim()) {
+    bloqueos.push("Falta la descripción del hecho concreto.");
+  }
+  if (!buscarOficialConstato(caso.oficial_constato, state.efectivos)) {
+    bloqueos.push(`No se ubica en Efectivos al oficial que constató: ${caso.oficial_constato || "sin registrar"}.`);
+  }
+  return bloqueos;
+}
+
+function revisionImputacion(caso) {
+  return {
+    titulo: "Inicio de Imputación",
+    estado: puedeGenerarImputacion(caso, state.efectivos) ? "ok" : "bloqueado",
+    mensajes: bloqueosBaseExpediente(caso),
+  };
+}
+
+function revisionActaNoDescargo(caso) {
+  if (!caso.imputacion_generada_at) {
+    return { titulo: "Acta de No Descargo", estado: "info", mensajes: ["Se habilita después de registrar la notificación de la imputación."] };
+  }
+  if (caso.fecha_descargo) {
+    return { titulo: "Acta de No Descargo", estado: "info", mensajes: ["No corresponde: el investigado presentó descargo."] };
+  }
+  if (!plazoDescargoVencido(caso)) {
+    return { titulo: "Acta de No Descargo", estado: "info", mensajes: [`El plazo de descargo sigue vigente hasta el ${formatDate(fechaLimiteDescargo(caso))}.`] };
+  }
+  const mensajes = bloqueosBaseExpediente(caso);
+  if (!buscarInvestigado(caso.apellidos, caso.nombres, state.efectivos)) {
+    mensajes.push("No se ubica al investigado en Efectivos para completar su CIP y DNI en el acta.");
+  }
+  return { titulo: "Acta de No Descargo", estado: mensajes.length ? "bloqueado" : "ok", mensajes };
+}
+
+function revisionOrdenSancion(caso, seleccion = datosSeleccionOrdenDesdePantalla()) {
+  if (!caso.imputacion_generada_at) {
+    return { titulo: "Orden de Sanción", estado: "info", mensajes: ["Se habilita después de notificar la imputación."] };
+  }
+  if (!caso.fecha_descargo && !plazoDescargoVencido(caso)) {
+    return { titulo: "Orden de Sanción", estado: "info", mensajes: [`Aún está vigente el plazo de descargo hasta el ${formatDate(fechaLimiteDescargo(caso))}.`] };
+  }
+  const mensajes = bloqueosBaseExpediente(caso);
+  if (!buscarInvestigado(caso.apellidos, caso.nombres, state.efectivos)) {
+    mensajes.push("No se ubica al investigado en Efectivos para completar su CIP en la orden.");
+  }
+  if (!seleccion.tercioValue) mensajes.push("Falta elegir el tercio de la sanción.");
+  if (!seleccion.analisisTexto) mensajes.push("Falta redactar el Análisis y Evaluación.");
+  if (caso.fecha_descargo && esResumenDescargoInsuficiente(seleccion.descargoTexto)) {
+    mensajes.push("Falta un resumen del descargo con sus puntos relevantes y argumentos de defensa.");
+  }
+  return { titulo: "Orden de Sanción", estado: mensajes.length ? "bloqueado" : "ok", mensajes };
+}
+
+function renderRevisionExpediente(caso) {
+  const contenedor = $("revisionExpedienteResultado");
+  if (!contenedor) return;
+  const revisiones = [revisionImputacion(caso), revisionActaNoDescargo(caso), revisionOrdenSancion(caso)];
+  const icono = { ok: "✓", bloqueado: "!", info: "i" };
+  const etiqueta = { ok: "Listo", bloqueado: "Requiere atención", info: "Aún no corresponde" };
+  contenedor.innerHTML = `
+    <div class="quality-header"><div><strong>Control de calidad del expediente</strong><span>Revise estos datos antes de generar o firmar un documento.</span></div></div>
+    <div class="quality-checks">${revisiones.map((revision) => `
+      <section class="quality-check quality-${revision.estado}">
+        <div class="quality-check-title"><span class="quality-icon">${icono[revision.estado]}</span><strong>${escapeHtml(revision.titulo)}</strong><span class="quality-status">${etiqueta[revision.estado]}</span></div>
+        ${revision.estado === "ok"
+          ? '<p>Todos los datos requeridos están completos.</p>'
+          : `<ul>${revision.mensajes.map((mensaje) => `<li>${escapeHtml(mensaje)}</li>`).join("")}</ul>`}
+      </section>
+    `).join("")}</div>`;
+  contenedor.classList.remove("hidden");
+  contenedor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderVistaPreviaDocumento(titulo, campos) {
+  const contenedor = $("vistaPreviaDocumento");
+  if (!contenedor) return;
+  $("vistaPreviaTitulo").textContent = `Datos que se insertarán · ${titulo}`;
+  $("vistaPreviaContenido").innerHTML = `<p class="muted small">Revise estos datos antes de descargar el documento.</p><dl class="preview-grid">${campos.map(([etiqueta, valor]) => `
+    <div><dt>${escapeHtml(etiqueta)}</dt><dd>${escapeHtml(valor || "—")}</dd></div>
+  `).join("")}</dl>`;
+  contenedor.classList.remove("hidden");
+  contenedor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderErrorVistaPrevia(titulo, error) {
+  renderVistaPreviaDocumento(titulo, [["No se puede armar la vista previa todavía", error?.message || String(error)]]);
+}
+
+function renderVistaPreviaBloqueos(titulo, mensajes) {
+  renderVistaPreviaDocumento(titulo, [["Complete antes de descargar", (mensajes || []).join("\n")]]);
+}
+
+function vistaPreviaImputacion(caso) {
+  const revision = revisionImputacion(caso);
+  if (revision.estado !== "ok") {
+    renderVistaPreviaBloqueos("Inicio de Imputación", revision.mensajes);
+    return;
+  }
+  try {
+    const datos = construirDatosImputacion(caso, state.efectivos);
+    renderVistaPreviaDocumento("Inicio de Imputación", [
+      ["Investigado", datos.investigado_completo], ["Infracción", datos.codigo_infraccion_texto],
+      ["Hecho concreto", datos.descripcion_hecho], ["Bien jurídico", datos.bien_juridico],
+      ["Sanción prevista", datos.sancion_texto], ["Firma", datos.superior_completo], ["Fecha", datos.fecha_larga],
+    ]);
+  } catch (error) { renderErrorVistaPrevia("Inicio de Imputación", error); }
+}
+
+function vistaPreviaActa(caso) {
+  try {
+    const datos = construirDatosActaNoDescargo(caso, state.efectivos);
+    renderVistaPreviaDocumento("Acta de No Descargo", [
+      ["Investigado", `${datos.investigado_grado} ${datos.investigado_nombres} ${datos.investigado_apellidos}`],
+      ["CIP del investigado", datos.investigado_cip], ["Oficial que constata", `${datos.superior_grado} ${datos.superior_nombres} ${datos.superior_apellidos}`],
+      ["CIP del oficial", datos.superior_cip], ["Fecha", datos.fecha_larga], ["Horario del acta", `${datos.hora_apertura} a ${datos.hora_cierre}`],
+    ]);
+  } catch (error) { renderErrorVistaPrevia("Acta de No Descargo", error); }
+}
+
+function vistaPreviaOrden(caso) {
+  const revision = revisionOrdenSancion(caso);
+  if (revision.estado !== "ok") {
+    renderVistaPreviaBloqueos("Orden de Sanción", revision.mensajes);
+    return;
+  }
+  try {
+    const datos = construirDatosOrdenSancion(caso, state.efectivos, datosSeleccionOrdenDesdePantalla());
+    renderVistaPreviaDocumento("Orden de Sanción", [
+      ["Investigado", datos.investigado_completo], ["Infracción", datos.codigo_texto],
+      ["Hecho concreto", datos.hecho_completo], ["Resumen del descargo", datos.descargo_texto],
+      ["Sanción seleccionada", datos.sancion_rango], ["Análisis y evaluación", datos.analisis_texto],
+      ["Decisión", datos.decision_texto], ["Firma", `${datos.signer_grado} ${datos.signer_nombre}`], ["Fecha", datos.fecha_larga_punto],
+    ]);
+  } catch (error) { renderErrorVistaPrevia("Orden de Sanción", error); }
 }
 
 // ---------- View switching ----------
@@ -1111,6 +1268,8 @@ async function renderCasoDetail(caso) {
       <div class="detail-card-header">
         <h3>${escapeHtml(nombreInvestigadoVisible(caso, true))}</h3>
         <div style="display:flex; gap:8px">
+          <button type="button" class="btn-secondary" id="btnRevisarExpediente">🔎 Revisar expediente</button>
+          <button type="button" class="btn-secondary" id="btnVistaPreviaImputacion">👁 Datos de imputación</button>
           ${puedeDescargar ? `<button type="button" class="btn-secondary" id="btnRevisarConsistencia">🔍 Revisar con IA</button>` : ""}
           <button type="button" class="btn-secondary" id="btnDescargarImputacion" ${puedeDescargar ? "" : "disabled"}>⬇ Descargar Imputación</button>
         </div>
@@ -1125,6 +1284,11 @@ async function renderCasoDetail(caso) {
       </div>
       ${!puedeDescargar ? `<p class="muted small">Para poder generar el documento, verifique que el código de infracción sea Leve válido (Anexo I) y que el oficial que constató ("${escapeHtml(caso.oficial_constato || "")}") esté registrado en Efectivos.</p>` : ""}
       <p id="revisionIAResultado" class="muted small hidden"></p>
+      <div id="revisionExpedienteResultado" class="quality-panel hidden" aria-live="polite"></div>
+      <section id="vistaPreviaDocumento" class="document-preview hidden" aria-live="polite">
+        <div class="detail-card-header"><h3 id="vistaPreviaTitulo">Datos que se insertarán</h3><button type="button" class="btn-ghost" id="btnCerrarVistaPrevia">Cerrar</button></div>
+        <div id="vistaPreviaContenido"></div>
+      </section>
       <div class="detail-grid">
         <div class="detail-field"><div class="label">Fecha del hecho</div><div class="value">${formatDate(caso.fecha_hecho)}</div></div>
         <div class="detail-field"><div class="label">Código de infracción</div><div class="value">${escapeHtml(caso.codigo_infraccion || "-")}${infraccion ? ` — ${escapeHtml(infraccion.bienJuridico)}` : ""}</div></div>
@@ -1165,7 +1329,7 @@ async function renderCasoDetail(caso) {
       ` : `
         <p class="muted small">Plazo de descargo vence el ${formatDate(fechaLimite)}.</p>
         ${plazoVencido ? `
-          ${puedeActa ? `<button type="button" class="btn-secondary" id="btnDescargarActa">⬇ Descargar Acta de No Descargo</button>` : `<p class="muted small">Venció el plazo, pero no se pudo ubicar en Efectivos al oficial o al investigado para generar el acta.</p>`}
+          ${puedeActa ? `<div class="modal-actions" style="justify-content:flex-start"><button type="button" class="btn-secondary" id="btnVistaPreviaActa">👁 Ver datos del Acta</button><button type="button" class="btn-secondary" id="btnDescargarActa">⬇ Descargar Acta de No Descargo</button></div>` : `<p class="muted small">Venció el plazo, pero no se pudo ubicar en Efectivos al oficial o al investigado para generar el acta.</p>`}
         ` : `<p class="muted small">El plazo aún está vigente, todavía no corresponde generar el acta.</p>`}
         ${puedeGestionar ? `
         <form id="descargoForm" style="margin-top:14px">
@@ -1200,10 +1364,11 @@ async function renderCasoDetail(caso) {
           ${caso.fecha_descargo ? `
           <div class="modal-actions" style="justify-content:flex-start; margin-bottom:10px">
             <button type="button" class="btn-secondary" id="btnAnalizarDescargoIA">✨ Analizar descargo con IA</button>
+            <button type="button" class="btn-secondary" id="btnVistaPreviaOrden">👁 Ver datos de la Orden</button>
           </div>
           <p class="muted small">La IA lee el descargo, considera los antecedentes del investigado en este sistema, sugiere el tercio y redacta el análisis. Revise siempre antes de guardar.</p>
           <p id="sancionIAStatus" class="muted small hidden"></p>
-          ` : `<p class="muted small">Sin descargo: el texto se genera automáticamente según el tercio que elija arriba.</p>`}
+          ` : `<div class="modal-actions" style="justify-content:flex-start; margin-bottom:10px"><button type="button" class="btn-secondary" id="btnVistaPreviaOrden">👁 Ver datos de la Orden</button></div><p class="muted small">Sin descargo: el texto se genera automáticamente según el tercio que elija arriba.</p>`}
           <p id="sancionError" class="error hidden"></p>
           <button type="submit" class="btn-primary">Guardar y descargar Orden de Sanción</button>
         </form>
@@ -1250,6 +1415,11 @@ async function renderCasoDetail(caso) {
     await handleDescargarImputacion(caso, e.currentTarget);
     openCasoDetail(caso.id);
   });
+  $("btnRevisarExpediente")?.addEventListener("click", () => renderRevisionExpediente(caso));
+  $("btnVistaPreviaImputacion")?.addEventListener("click", () => vistaPreviaImputacion(caso));
+  $("btnVistaPreviaActa")?.addEventListener("click", () => vistaPreviaActa(caso));
+  $("btnVistaPreviaOrden")?.addEventListener("click", () => vistaPreviaOrden(caso));
+  $("btnCerrarVistaPrevia")?.addEventListener("click", () => $("vistaPreviaDocumento")?.classList.add("hidden"));
   $("btnRevisarConsistencia")?.addEventListener("click", () => revisarConsistenciaImputacion(caso));
   $("btnDescargarActa")?.addEventListener("click", (e) => handleDescargarActaNoDescargo(caso, e.currentTarget));
   $("notificacionForm")?.addEventListener("submit", (e) => submitNotificacion(e, caso.id));
@@ -1610,11 +1780,11 @@ async function submitSancion(e, caso) {
   const analisisTexto = $("sSancionAnalisis").value.trim();
   const descargoTexto = $("sSancionDescargo").value.trim();
 
-  if (!tercioValue) { errEl.textContent = "Seleccione la sanción a imponer."; errEl.classList.remove("hidden"); return; }
-  if (!analisisTexto) { errEl.textContent = "Escriba el Análisis y Evaluación."; errEl.classList.remove("hidden"); return; }
-  if (caso.fecha_descargo && esResumenDescargoInsuficiente(descargoTexto)) {
-    errEl.textContent = "Falta un resumen del descargo. Use «Analizar descargo con IA» o escriba los puntos relevantes y argumentos de defensa antes de generar la orden.";
+  const revision = revisionOrdenSancion(caso, { tercioValue, analisisTexto, descargoTexto });
+  if (revision.estado !== "ok") {
+    errEl.textContent = revision.mensajes.join(" ");
     errEl.classList.remove("hidden");
+    renderRevisionExpediente(caso);
     return;
   }
 
