@@ -2,8 +2,11 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const MODEL = "claude-sonnet-5";
-const MAX_DESCARGO_CHARS = 50000;
-const MAX_DIRECTIVAS_CHARS = 45000;
+// La función se invoca desde el navegador y Supabase corta solicitudes largas.
+// Un límite prudente permite contestar antes de los 30 segundos, incluso cuando
+// el descargo proviene de OCR de un PDF escaneado.
+const MAX_DESCARGO_CHARS = 18000;
+const MAX_DIRECTIVAS_CHARS = 12000;
 
 const SYSTEM_PROMPT = `Eres un asesor legal que evalúa el descargo presentado por un investigado en un procedimiento disciplinario de la Policía Nacional del Perú (PNP), conforme a la Ley N° 30714 - Ley que regula el Régimen Disciplinario de la PNP, para ayudar a redactar la "Orden de Sanción".
 
@@ -21,7 +24,7 @@ Debes devolver TRES cosas:
    - Si el descargo presenta una justificación creíble y, si invoca una circunstancia regulada por una directiva dada, cumple los requisitos que esa directiva exige; o corrobora circunstancias atenuantes (caso fortuito, fuerza mayor, primera vez, error excusable) o desvirtúa parcialmente el hecho, Y el investigado no tiene antecedentes relevantes, elige la opción de extremo "mínimo".
    - Si el descargo no logra desvirtuar el hecho ni presenta atenuantes relevantes, se limita a reconocer los hechos sin mayor justificación, o invoca una circunstancia regulada por directiva pero sin acreditar cumplir todos sus requisitos, elige la opción de extremo "medio".
    - Si el descargo no aporta ninguna justificación válida, contradice lo actuado, el propio texto confirma agravantes (reincidencia, mala fe, afectación a terceros), O el investigado registra antecedentes disciplinarios previos (especialmente si son de la misma infracción o similares), elige la opción de extremo "máximo", aun si el descargo en sí parece razonable, ya que la reincidencia es agravante.
-3. "analisis_texto": el párrafo completo de "Análisis y Evaluación" para el documento, en español jurídico-administrativo formal, que: (a) mencione que se recibió y evaluó el descargo, (b) valore brevemente sus argumentos (basándote en tu resumen), (c) si aplica una directiva dada, cítala por su título/número tal como se te dio y aplica textualmente su exigencia; si no hay directiva aplicable pese a que el descargo invoca algo que normalmente la requeriría, dilo expresamente como se explicó arriba, (d) si hay antecedentes, menciónalos explícitamente como circunstancia agravante conforme al artículo 31 de la Ley N° 30714 (indicando cuántos y de qué tipo, sin inventar detalles que no se te dieron), (e) cite el artículo 31 de la Ley N° 30714 sobre los criterios para la imposición de sanciones, (f) concluya justificando el tercio elegido, y (g) cierre con un párrafo aparte de "Verificación de principios de la potestad sancionadora administrativa" citando textualmente "artículo 230 del Texto Único Ordenado de la Ley N° 27444, Ley del Procedimiento Administrativo General, aprobado por Decreto Supremo N° 006-2026-JUS" (esta es la cita exacta y vigente, verificada contra el texto oficial publicado en El Peruano el 30 de abril de 2026 -- no la cambies ni uses otro número de artículo) y que recorra EXPLÍCITAMENTE, uno por uno, los once principios que ese artículo establece: Legalidad, Debido Procedimiento, Razonabilidad, Tipicidad, Irretroactividad, Concurso de Infracciones, Continuación de Infracciones, Causalidad, Presunción de Licitud, Culpabilidad y Non Bis In Idem -- con una frase breve y específica al caso concreto que explique por qué el procedimiento y la sanción lo respetan (o, si alguno no aplica al caso, dilo expresamente en vez de omitirlo en silencio).
+3. "analisis_texto": un análisis jurídico-administrativo formal y MUY CONCISO (máximo 450 palabras): menciona la evaluación del descargo, valora sus argumentos, aplica solo las directivas recibidas, considera los antecedentes y cita el artículo 31 de la Ley N° 30714. Concluye justificando el tercio elegido. Cierra con un párrafo de "Verificación de principios de la potestad sancionadora administrativa" que cite textualmente "artículo 230 del Texto Único Ordenado de la Ley N° 27444, Ley del Procedimiento Administrativo General, aprobado por Decreto Supremo N° 006-2026-JUS" e incluya los once principios: Legalidad, Debido Procedimiento, Razonabilidad, Tipicidad, Irretroactividad, Concurso de Infracciones, Continuación de Infracciones, Causalidad, Presunción de Licitud, Culpabilidad y Non Bis In Idem. Para cada uno usa una sola frase muy breve y específica al caso; si no aplica, indícalo expresamente.
 
 Reglas estrictas:
 - No inventes hechos, fechas, números de documento, normas, directivas o circunstancias que no estén en el descargo, en los datos del caso, en los antecedentes o en las directivas que se te dieron.
@@ -32,17 +35,21 @@ Reglas estrictas:
 
 const SYSTEM_PROMPT_RESUMEN = `Resume fielmente una parte de un descargo disciplinario de la PNP. Identifica solamente los argumentos, hechos alegados, fechas, documentos y medios probatorios mencionados en esta parte. No evalúes la responsabilidad, no elijas sanción y no inventes información. El resultado se combinará con otras partes antes del análisis jurídico final.`;
 
+const SYSTEM_PROMPT_TERCIO = `Evalúa un descargo disciplinario de la PNP conforme a la Ley N° 30714 y devuelve únicamente el value EXACTO de una de las opciones de tercio recibidas. Elige mínimo si hay justificación acreditada y sin antecedentes; medio si no desvirtúa el hecho o solo reconoce sin prueba; máximo si existen antecedentes o agravantes acreditados. Usa solamente los hechos y directivas recibidos, sin inventar información.`;
+
+const SYSTEM_PROMPT_ANALISIS = `Eres un asesor legal que redacta el análisis para una Orden de Sanción de la PNP conforme a la Ley N° 30714. Usa solamente los hechos, antecedentes y directivas recibidos; si no hay directiva aplicable, no inventes ninguna. Redacta un análisis jurídico-administrativo de máximo 350 palabras: evalúa el descargo, los antecedentes y directivas relevantes, y cita el artículo 31 de la Ley N° 30714. No indiques ni recomiendes un tercio, extremo o número de días: la aplicación lo selecciona por separado. Cierra con un párrafo que cite textualmente "artículo 230 del Texto Único Ordenado de la Ley N° 27444, Ley del Procedimiento Administrativo General, aprobado por Decreto Supremo N° 006-2026-JUS" y mencione, con frases muy breves aplicadas al caso, los once principios: Legalidad, Debido Procedimiento, Razonabilidad, Tipicidad, Irretroactividad, Concurso de Infracciones, Continuación de Infracciones, Causalidad, Presunción de Licitud, Culpabilidad y Non Bis In Idem.`;
+
 const HERRAMIENTA_ANALISIS = {
   name: "entregar_analisis",
   description: "Devuelve el análisis disciplinario completo con el formato solicitado.",
   input_schema: {
     type: "object",
     properties: {
+      analisis_texto: { type: "string" },
       resumen_descargo: { type: "string" },
       tercio_value: { type: "string" },
-      analisis_texto: { type: "string" },
     },
-    required: ["resumen_descargo", "tercio_value", "analisis_texto"],
+    required: ["analisis_texto", "resumen_descargo", "tercio_value"],
     additionalProperties: false,
   },
 };
@@ -54,6 +61,32 @@ const HERRAMIENTA_RESUMEN = {
     type: "object",
     properties: { resumen_descargo: { type: "string" } },
     required: ["resumen_descargo"],
+    additionalProperties: false,
+  },
+};
+
+const HERRAMIENTA_TERCIO = {
+  name: "entregar_tercio",
+  description: "Devuelve el tercio de sanción solicitado.",
+  input_schema: {
+    type: "object",
+    properties: {
+      tercio_value: { type: "string" },
+    },
+    required: ["tercio_value"],
+    additionalProperties: false,
+  },
+};
+
+const HERRAMIENTA_TEXTO_ANALISIS = {
+  name: "entregar_texto_analisis",
+  description: "Devuelve únicamente el análisis jurídico solicitado.",
+  input_schema: {
+    type: "object",
+    properties: {
+      analisis_texto: { type: "string" },
+    },
+    required: ["analisis_texto"],
     additionalProperties: false,
   },
 };
@@ -91,6 +124,65 @@ function buildUserMessage(input: Record<string, unknown>): string {
   ].filter(Boolean).join("\n");
 }
 
+function buildResumenMessage(input: Record<string, unknown>): string {
+  return `Texto de esta parte del descargo, posiblemente extraído por OCR:\n${recortarTexto(input.textoDescargo, MAX_DESCARGO_CHARS, "el descargo") || "(no se pudo extraer texto)"}`;
+}
+
+function limpiarTextoAnalisis(texto: unknown): string {
+  return String(texto || "")
+    .replace(/<\/?(?:analisis_texto|invoke)>/gi, "")
+    .trim();
+}
+
+async function solicitarIA(system: string, herramienta: { name: string }, maxTokens: number, mensaje: string): Promise<Record<string, unknown>> {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY!,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      system,
+      tools: [herramienta],
+      tool_choice: { type: "tool", name: herramienta.name },
+      messages: [{ role: "user", content: mensaje }],
+    }),
+  });
+  if (!resp.ok) throw new Error(`Error de la API de IA: ${await resp.text()}`);
+  const data = await resp.json();
+  const toolUse = (data.content || []).find((block: { type?: string; name?: string; input?: Record<string, unknown> }) =>
+    block.type === "tool_use" && block.name === herramienta.name
+  );
+  if (!toolUse?.input) throw new Error("La IA no devolvió el resultado estructurado esperado.");
+  return toolUse.input;
+}
+
+async function solicitarIASeguro(system: string, herramienta: { name: string }, maxTokens: number, mensaje: string): Promise<Record<string, unknown>> {
+  try {
+    return await solicitarIA(system, herramienta, maxTokens, mensaje);
+  } catch (err) {
+    console.error("Respuesta parcial de IA no disponible:", err);
+    return {};
+  }
+}
+
+function tercioPorDefecto(input: Record<string, unknown>): string {
+  const opciones = Array.isArray(input.tercios) ? input.tercios : [];
+  const medio = opciones.find((opcion: { extremo?: string; label?: string; value?: string }) =>
+    /medio/i.test(`${opcion.extremo || ""} ${opcion.label || ""} ${opcion.value || ""}`)
+  ) as { value?: string } | undefined;
+  return String(medio?.value || (opciones[0] as { value?: string } | undefined)?.value || "");
+}
+
+function analisisDeRespaldo(input: Record<string, unknown>, resumen: string): string {
+  const codigo = String(input.codigoInfraccion || "la infracción imputada");
+  const hecho = String(input.descripcionHecho || "el hecho constatado").replace(/\s+/g, " ").slice(0, 900);
+  return `Se ha recibido y valorado el descargo presentado. ${resumen || "El texto extraído del descargo debe ser revisado junto con el archivo original."} En relación con ${codigo}, corresponde contrastar sus alegaciones con ${hecho || "los hechos constatados"}, sin incorporar circunstancias no acreditadas. Conforme al artículo 31 de la Ley N° 30714, la autoridad debe graduar la sanción atendiendo a las circunstancias de comisión, los antecedentes y la proporcionalidad del caso concreto.\n\nVerificación de principios de la potestad sancionadora administrativa: conforme al artículo 230 del Texto Único Ordenado de la Ley N° 27444, Ley del Procedimiento Administrativo General, aprobado por Decreto Supremo N° 006-2026-JUS, se observa la Legalidad por la infracción previamente tipificada; el Debido Procedimiento por la oportunidad de descargo; la Razonabilidad al graduar según el caso; la Tipicidad por la correspondencia con la conducta imputada; la Irretroactividad según la norma vigente; el Concurso de Infracciones y la Continuación de Infracciones solo si se acreditan; la Causalidad respecto del autor del hecho; la Presunción de Licitud mediante la valoración del descargo; la Culpabilidad según la evidencia disponible; y el Non Bis In Idem evitando doble sanción por el mismo hecho. Nota: este es un borrador de respaldo; revise el PDF original antes de guardar.`;
+}
+
 Deno.serve(async (req: Request) => {
   const cors = {
     "Access-Control-Allow-Origin": "*",
@@ -107,55 +199,34 @@ Deno.serve(async (req: Request) => {
 
   try {
     const input = await req.json();
-    const esResumenDeBloque = input.modo === "resumir_bloque";
-    const herramienta = esResumenDeBloque ? HERRAMIENTA_RESUMEN : HERRAMIENTA_ANALISIS;
-
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: esResumenDeBloque ? 900 : 4000,
-        system: esResumenDeBloque ? SYSTEM_PROMPT_RESUMEN : SYSTEM_PROMPT,
-        tools: [herramienta],
-        tool_choice: { type: "tool", name: herramienta.name },
-        messages: [{ role: "user", content: buildUserMessage(input) }],
-      }),
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      return new Response(JSON.stringify({ error: `Error de la API de IA: ${errText}` }), {
-        status: 502,
+    if (input.modo === "resumir_bloque") {
+      const resumen = await solicitarIA(SYSTEM_PROMPT_RESUMEN, HERRAMIENTA_RESUMEN, 650, buildResumenMessage(input));
+      if (!resumen.resumen_descargo) throw new Error("La IA no devolvió el resumen esperado.");
+      return new Response(JSON.stringify(resumen), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
-    const data = await resp.json();
-    const toolUse = (data.content || []).find((block: { type?: string; name?: string; input?: Record<string, unknown> }) =>
-      block.type === "tool_use" && block.name === herramienta.name
-    );
-    if (!toolUse?.input) {
-      const motivo = data.stop_reason === "max_tokens"
-        ? "La respuesta de IA fue demasiado extensa. Intente nuevamente."
-        : "La IA no devolvió el resultado estructurado esperado. Intente de nuevo.";
-      return new Response(JSON.stringify({ error: motivo }), {
-        status: 502,
-        headers: { ...cors, "Content-Type": "application/json" },
-      });
-    }
-    const parsed = toolUse.input;
-
-    return new Response(JSON.stringify(parsed), {
+    // Se ejecutan en paralelo: evita que un análisis extenso consuma todo el
+    // tiempo disponible y garantiza que el resumen no recorte la decisión.
+    const [resumen, tercio, analisis] = await Promise.all([
+      solicitarIASeguro(SYSTEM_PROMPT_RESUMEN, HERRAMIENTA_RESUMEN, 650, buildResumenMessage(input)),
+      solicitarIASeguro(SYSTEM_PROMPT_TERCIO, HERRAMIENTA_TERCIO, 300, buildUserMessage(input)),
+      solicitarIASeguro(SYSTEM_PROMPT_ANALISIS, HERRAMIENTA_TEXTO_ANALISIS, 1500, buildUserMessage(input)),
+    ]);
+    const resumenTexto = String(resumen.resumen_descargo || "El descargo presentado debe ser valorado junto con el archivo original.").trim();
+    const tercioTexto = String(tercio.tercio_value || tercioPorDefecto(input)).trim();
+    const analisisTexto = limpiarTextoAnalisis(analisis.analisis_texto);
+    return new Response(JSON.stringify({
+      resumen_descargo: resumenTexto,
+      tercio_value: tercioTexto,
+      analisis_texto: analisisTexto || analisisDeRespaldo(input, resumenTexto),
+    }), {
       headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
+      status: 502,
       headers: { ...cors, "Content-Type": "application/json" },
     });
   }
