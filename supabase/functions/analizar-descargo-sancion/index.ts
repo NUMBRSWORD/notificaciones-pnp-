@@ -1,5 +1,7 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-
+// La Edge Function solo usa las API nativas de Deno (Request, Response y
+// Deno.serve). Evitar una importación de tipos externa permite que el proceso
+// arranque aun cuando el resolvedor de módulos del entorno esté temporalmente
+// no disponible.
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const MODEL = "claude-sonnet-5";
 // La función se invoca desde el navegador y Supabase corta solicitudes largas.
