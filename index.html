@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Notificación de Imputación PNP</title>
+<title>CPNP Ventanilla | Gestión interna</title>
 <link rel="stylesheet" href="styles.css" />
 <script>
   (function () {
@@ -22,18 +22,22 @@
   <div class="topbar-inner">
     <div class="brand">
       <span class="brand-badge">PNP</span>
-      <span class="brand-title">Notificación de Imputación</span>
+      <span class="brand-copy">
+        <span class="brand-title">CPNP Ventanilla</span>
+        <span class="brand-subtitle">Gestión interna de expedientes</span>
+      </span>
     </div>
     <nav class="tabs">
       <button class="tab-btn active" data-view="casos">Casos</button>
-      <button class="tab-btn" data-view="efectivos">Efectivos</button>
-      <button class="tab-btn" data-view="directivas">Directivas</button>
-      <button class="tab-btn" data-view="agenda">Agenda</button>
-      <button class="tab-btn" data-view="documentos">Documentos</button>
-      <button class="tab-btn" data-view="panel">Panel</button>
+      <button class="tab-btn admin-only hidden" data-view="efectivos">Efectivos</button>
+      <button class="tab-btn admin-only hidden" data-view="directivas">Directivas</button>
+      <button class="tab-btn admin-only hidden" data-view="agenda">Agenda</button>
+      <button class="tab-btn admin-only hidden" data-view="documentos">Documentos</button>
+      <button class="tab-btn admin-only hidden" data-view="panel">Panel</button>
       <button class="tab-btn admin-only hidden" data-view="historial">Historial</button>
     </nav>
     <div class="user-box">
+      <button id="btnBusquedaGlobal" class="btn-ghost search-shortcut" type="button" title="Buscar personas y expedientes (Ctrl + K)">⌕ Buscar <kbd>Ctrl K</kbd></button>
       <span id="userEmail"></span>
       <span id="userRole" class="badge"></span>
       <button id="btnLogout" class="btn-ghost">Salir</button>
@@ -48,8 +52,9 @@
     <form id="loginForm" class="card login-card">
       <div class="brand center">
         <span class="brand-badge lg">PNP</span>
-        <h1>Ingresar</h1>
-        <p class="muted">Ingrese su correo (o su CIP) y clave.</p>
+        <h1>CPNP Ventanilla</h1>
+        <p class="muted">Gestión interna de expedientes disciplinarios.</p>
+        <p class="muted small">Acceso exclusivo para personal autorizado. Ingrese su correo (o CIP) y clave.</p>
       </div>
       <label>Correo o CIP
         <input type="text" id="loginEmail" required autocomplete="username" />
@@ -68,7 +73,7 @@
     <form id="registroForm" class="card login-card">
       <div class="brand center">
         <span class="brand-badge lg">PNP</span>
-        <h1>Crear cuenta</h1>
+        <h1>Registro interno</h1>
         <p class="muted">Su cuenta iniciará con rol "viewer"; un administrador debe darle permisos para registrar casos.</p>
       </div>
       <label>Correo
@@ -269,6 +274,25 @@
   </section>
 
 </main>
+
+<!-- BÚSQUEDA RÁPIDA GLOBAL -->
+<div id="modalBusquedaGlobal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="busquedaGlobalTitulo">
+  <div class="modal command-modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="busquedaGlobalTitulo">Buscar persona o expediente</h3>
+        <p class="muted small modal-subtitle">Escriba nombres o apellidos. Si coincide un apellido, se mostrarán todas las personas registradas.</p>
+      </div>
+      <button id="btnCerrarBusquedaGlobal" class="btn-ghost" type="button" aria-label="Cerrar búsqueda">✕</button>
+    </div>
+    <div class="command-body">
+      <label class="sr-only" for="busquedaGlobalInput">Nombre o apellido</label>
+      <input id="busquedaGlobalInput" type="search" autocomplete="off" placeholder="Ej.: Solis, Gonzales o Manuel Angelo" />
+      <p id="busquedaGlobalAyuda" class="muted small">Escriba al menos dos letras para buscar en expedientes y efectivos.</p>
+      <div id="busquedaGlobalResultados" class="command-results" aria-live="polite"></div>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL NUEVO CASO -->
 <div id="modalNuevoCaso" class="modal-overlay hidden">
