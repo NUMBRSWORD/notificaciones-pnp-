@@ -177,6 +177,23 @@ function tercioPorDefecto(input: Record<string, unknown>): string {
   return String(medio?.value || (opciones[0] as { value?: string } | undefined)?.value || "");
 }
 
+// Si la llamada dedicada al resumen falla, se conserva un resumen breve del
+// propio texto extraído. Nunca se devuelve la frase genérica que no aporta los
+// argumentos de defensa requeridos por la plantilla.
+function resumenDeRespaldo(input: Record<string, unknown>): string {
+  const texto = String(input.textoDescargo || "").replace(/\s+/g, " ").trim();
+  if (!texto) return "";
+  const oraciones = texto.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+  const extracto = oraciones
+    .map((oracion) => oracion.trim())
+    .filter((oracion) => oracion.length >= 25)
+    .slice(0, 3)
+    .join(" ")
+    .slice(0, 1100);
+  if (!extracto) return "";
+  return `En su descargo, el investigado expone, en síntesis, los siguientes puntos relevantes: ${extracto}`;
+}
+
 function analisisDeRespaldo(input: Record<string, unknown>, resumen: string): string {
   const codigo = String(input.codigoInfraccion || "la infracción imputada");
   const hecho = String(input.descripcionHecho || "el hecho constatado").replace(/\s+/g, " ").slice(0, 900);
@@ -200,9 +217,10 @@ Deno.serve(async (req: Request) => {
   try {
     const input = await req.json();
     if (input.modo === "resumir_bloque") {
-      const resumen = await solicitarIA(SYSTEM_PROMPT_RESUMEN, HERRAMIENTA_RESUMEN, 650, buildResumenMessage(input));
-      if (!resumen.resumen_descargo) throw new Error("La IA no devolvió el resumen esperado.");
-      return new Response(JSON.stringify(resumen), {
+      const resumen = await solicitarIASeguro(SYSTEM_PROMPT_RESUMEN, HERRAMIENTA_RESUMEN, 650, buildResumenMessage(input));
+      const resumenTexto = String(resumen.resumen_descargo || resumenDeRespaldo(input)).trim();
+      if (!resumenTexto) throw new Error("No se pudo obtener un resumen legible de esta parte del descargo.");
+      return new Response(JSON.stringify({ resumen_descargo: resumenTexto }), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
     }
@@ -214,7 +232,8 @@ Deno.serve(async (req: Request) => {
       solicitarIASeguro(SYSTEM_PROMPT_TERCIO, HERRAMIENTA_TERCIO, 300, buildUserMessage(input)),
       solicitarIASeguro(SYSTEM_PROMPT_ANALISIS, HERRAMIENTA_TEXTO_ANALISIS, 1500, buildUserMessage(input)),
     ]);
-    const resumenTexto = String(resumen.resumen_descargo || "El descargo presentado debe ser valorado junto con el archivo original.").trim();
+    const resumenTexto = String(resumen.resumen_descargo || resumenDeRespaldo(input)).trim();
+    if (!resumenTexto) throw new Error("No se pudo obtener un resumen legible del descargo. Revise el archivo o redacte el resumen manualmente.");
     const tercioTexto = String(tercio.tercio_value || tercioPorDefecto(input)).trim();
     const analisisTexto = limpiarTextoAnalisis(analisis.analisis_texto);
     return new Response(JSON.stringify({

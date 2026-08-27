@@ -177,6 +177,11 @@ function nombreInvestigadoVisible(caso, incluirGrado = false) {
   return `${incluirGrado ? (caso?.grado || "").trim() : ""} ${nombre}`.replace(/\s+/g, " ").trim();
 }
 
+function esResumenDescargoInsuficiente(texto) {
+  const resumen = String(texto || "").replace(/\s+/g, " ").trim();
+  return !resumen || /^El descargo presentado debe ser valorado junto con el archivo original\.?$/i.test(resumen);
+}
+
 // ---------- View switching ----------
 function showView(id) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
@@ -1081,8 +1086,8 @@ async function renderCasoDetail(caso) {
             const marcado = caso.sancion_tercio_label === o.value;
             return `<label class="checkbox-row"><input type="radio" name="sancionTercio" value="${o.value}" ${marcado ? "checked" : ""} required /> ${escapeHtml(o.label)}</label>`;
           }).join("")}
-          <label>Descargo del investigado (resumen${caso.fecha_descargo ? " — deje en blanco y presione \"Analizar con IA\" para que se lea solo del archivo subido" : ""})
-            <textarea id="sSancionDescargo" rows="3" placeholder="${caso.fecha_descargo ? "Déjelo en blanco: 'Analizar con IA' lee el archivo del descargo ya subido. O escriba usted mismo un resumen." : ""}">${escapeHtml(caso.sancion_descargo_texto || (caso.fecha_descargo ? "" : "El investigado no presentó su descargo por escrito dentro del plazo de un (01) día hábil establecido por ley, conforme acta respectiva, precluyendo su derecho a la defensa en la presente etapa procedimental."))}</textarea>
+          <label>Descargo del investigado (resumen de puntos relevantes y argumentos de defensa${caso.fecha_descargo ? " — deje en blanco y presione \"Analizar con IA\" para que se lea solo del archivo subido" : ""})
+            <textarea id="sSancionDescargo" rows="4" placeholder="${caso.fecha_descargo ? "Primero use 'Analizar con IA' o escriba un resumen propio. No copie el descargo completo." : ""}">${escapeHtml(caso.sancion_descargo_texto || (caso.fecha_descargo ? "" : "El investigado no presentó su descargo por escrito dentro del plazo de un (01) día hábil establecido por ley, conforme acta respectiva, precluyendo su derecho a la defensa en la presente etapa procedimental."))}</textarea>
           </label>
           <label>Análisis y evaluación ${caso.fecha_descargo ? "(notas sueltas o texto final)" : "(se completa solo al elegir el tercio; puede editarlo)"}
             <textarea id="sSancionAnalisis" rows="6" required placeholder="Anote qué se acredita, qué alega el investigado, y por qué corresponde el tercio elegido... o escriba el texto final directamente.">${escapeHtml(caso.sancion_analisis_texto || "")}</textarea>
@@ -1396,7 +1401,11 @@ async function analizarDescargoConIA(caso) {
       textoDescargo: textoParaAnalisis,
       directivas,
     });
-    if (data?.resumen_descargo) $("sSancionDescargo").value = data.resumen_descargo;
+    if (data?.resumen_descargo && !esResumenDescargoInsuficiente(data.resumen_descargo)) {
+      $("sSancionDescargo").value = data.resumen_descargo;
+    } else {
+      throw new Error("No se pudo obtener un resumen útil del descargo. Revise el archivo o redacte un resumen de los puntos relevantes y argumentos de defensa antes de generar la orden.");
+    }
     if (data?.analisis_texto) {
       $("sSancionAnalisis").value = data.analisis_texto;
       $("sSancionAnalisis").dataset.autofilled = "false";
@@ -1491,6 +1500,11 @@ async function submitSancion(e, caso) {
 
   if (!tercioValue) { errEl.textContent = "Seleccione la sanción a imponer."; errEl.classList.remove("hidden"); return; }
   if (!analisisTexto) { errEl.textContent = "Escriba el Análisis y Evaluación."; errEl.classList.remove("hidden"); return; }
+  if (caso.fecha_descargo && esResumenDescargoInsuficiente(descargoTexto)) {
+    errEl.textContent = "Falta un resumen del descargo. Use «Analizar descargo con IA» o escriba los puntos relevantes y argumentos de defensa antes de generar la orden.";
+    errEl.classList.remove("hidden");
+    return;
+  }
 
   const submitBtn = e.target.querySelector("button[type=submit]");
   const textoOriginal = submitBtn.textContent;
