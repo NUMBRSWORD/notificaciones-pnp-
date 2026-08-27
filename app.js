@@ -183,7 +183,19 @@ function esResumenDescargoInsuficiente(texto) {
 }
 
 // ---------- View switching ----------
+const VISTAS_SOLO_ADMIN = new Set([
+  "view-efectivos",
+  "view-directivas",
+  "view-agenda",
+  "view-documentos",
+  "view-panel",
+  "view-historial",
+]);
+
 function showView(id) {
+  // Aunque se oculte la pestaña, esta protección evita que una vista de
+  // administración se abra por accidente para un usuario normal.
+  if (VISTAS_SOLO_ADMIN.has(id) && state.role !== "admin") id = "view-dashboard";
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(id).classList.remove("hidden");
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -207,6 +219,99 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 });
 
 $("btnVolverDashboard").addEventListener("click", () => { showView("view-dashboard"); loadCasos(); });
+
+// ---------- Búsqueda global (Ctrl + K) ----------
+// Reúne los expedientes y los efectivos en una sola búsqueda. Así el oficial
+// no necesita abrir una pestaña adicional solo para encontrar a una persona.
+function normalizarBusqueda(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function coincideBusqueda(consulta, valores) {
+  const palabras = normalizarBusqueda(consulta).split(/\s+/).filter(Boolean);
+  const contenido = normalizarBusqueda(valores.filter(Boolean).join(" "));
+  return palabras.every((palabra) => contenido.includes(palabra));
+}
+
+function cerrarBusquedaGlobal() {
+  $("modalBusquedaGlobal").classList.add("hidden");
+}
+
+function renderBusquedaGlobal() {
+  const consulta = $("busquedaGlobalInput").value.trim();
+  const ayuda = $("busquedaGlobalAyuda");
+  const resultados = $("busquedaGlobalResultados");
+  resultados.innerHTML = "";
+
+  if (normalizarBusqueda(consulta).length < 2) {
+    ayuda.textContent = "Escriba al menos dos letras para buscar en expedientes y efectivos.";
+    return;
+  }
+
+  const casos = state.casos.filter((caso) => coincideBusqueda(consulta, [
+    caso.nombres, caso.apellidos, caso.grado, caso.codigo_infraccion,
+  ]));
+  const efectivos = state.efectivos.filter((efectivo) => coincideBusqueda(consulta, [
+    efectivo.apellidos_nombres, efectivo.grado, efectivo.cip,
+  ]));
+  const total = casos.length + efectivos.length;
+  ayuda.textContent = total
+    ? `${total} coincidencia${total === 1 ? "" : "s"}. Puede abrir un expediente o consultar los datos del efectivo.`
+    : "No se encontraron personas ni expedientes con ese nombre o apellido.";
+
+  const filasCasos = casos.map((caso) => `
+    <button type="button" class="command-result btn-abrir-busqueda-caso" data-id="${escapeHtml(caso.id)}">
+      <span class="command-result-copy">
+        <strong>${escapeHtml(nombreInvestigadoVisible(caso, true))}</strong>
+        <span>Expediente · ${escapeHtml(caso.codigo_infraccion || "Sin código")} · ${escapeHtml(estadoDeCaso(caso))}</span>
+      </span>
+      <span class="command-result-type">Abrir caso</span>
+    </button>`).join("");
+  const filasEfectivos = efectivos.map((efectivo) => `
+    <article class="command-result">
+      <span class="command-result-copy">
+        <strong>${escapeHtml(efectivo.apellidos_nombres || "Sin nombre")}</strong>
+        <span>${escapeHtml(efectivo.grado || "Sin grado")} · CIP ${escapeHtml(efectivo.cip || "No registrado")}</span>
+      </span>
+      <span class="command-result-type">Efectivo</span>
+    </article>`).join("");
+
+  resultados.innerHTML = filasCasos + filasEfectivos || '<div class="command-empty">No hay coincidencias para esta búsqueda.</div>';
+  resultados.querySelectorAll(".btn-abrir-busqueda-caso").forEach((boton) => {
+    boton.addEventListener("click", () => {
+      cerrarBusquedaGlobal();
+      openCasoDetail(boton.dataset.id);
+    });
+  });
+}
+
+function abrirBusquedaGlobal() {
+  if (!state.session) return;
+  $("modalBusquedaGlobal").classList.remove("hidden");
+  $("busquedaGlobalInput").value = "";
+  renderBusquedaGlobal();
+  requestAnimationFrame(() => $("busquedaGlobalInput").focus());
+}
+
+$("btnBusquedaGlobal").addEventListener("click", abrirBusquedaGlobal);
+$("btnCerrarBusquedaGlobal").addEventListener("click", cerrarBusquedaGlobal);
+$("busquedaGlobalInput").addEventListener("input", renderBusquedaGlobal);
+$("modalBusquedaGlobal").addEventListener("click", (event) => {
+  if (event.target === $("modalBusquedaGlobal")) cerrarBusquedaGlobal();
+});
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    abrirBusquedaGlobal();
+  }
+  if (event.key === "Escape" && !$("modalBusquedaGlobal").classList.contains("hidden")) {
+    cerrarBusquedaGlobal();
+  }
+});
 
 // ---------- Anexo I datalist ----------
 const anexoOptions = Object.entries(ANEXO_I)
