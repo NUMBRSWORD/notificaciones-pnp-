@@ -1084,14 +1084,51 @@ function progresoCasoHtml(c) {
 }
 
 function cronologiaCasoHtml(caso) {
+  const hechoCompleto = Boolean(caso.fecha_hecho && caso.descripcion_hecho && getInfraccion(caso.codigo_infraccion));
+  const imputacionNotificada = Boolean(caso.imputacion_generada_at);
+  const plazoVencido = imputacionNotificada && !caso.fecha_descargo && plazoDescargoVencido(caso);
+  const puedeEvaluar = imputacionNotificada && (Boolean(caso.fecha_descargo) || plazoVencido);
+  const ordenGenerada = Boolean(caso.sancion_generada_at);
+  const ordenNotificada = Boolean(caso.orden_notificada_at);
+  const fechaLimite = fechaLimiteDescargo(caso);
+
   const pasos = [
-    { titulo: "Caso registrado", fecha: caso.created_at, listo: true },
-    { titulo: "Imputación notificada", fecha: caso.imputacion_generada_at, listo: !!caso.imputacion_generada_at },
-    { titulo: "Descargo recibido", fecha: caso.fecha_descargo, listo: !!caso.fecha_descargo },
-    { titulo: "Orden de sanción generada", fecha: caso.sancion_generada_at, listo: !!caso.sancion_generada_at },
-    { titulo: "Orden notificada", fecha: caso.orden_notificada_at, listo: !!caso.orden_notificada_at },
+    {
+      titulo: "Hecho", estado: hechoCompleto ? "completo" : "pendiente",
+      detalle: hechoCompleto ? `Registrado el ${formatDate(caso.fecha_hecho)}` : "Complete fecha, infracción y hecho concreto",
+    },
+    {
+      titulo: "Imputación", estado: !hechoCompleto ? "no-disponible" : imputacionNotificada ? "completo" : "pendiente",
+      detalle: !hechoCompleto ? "Complete primero los datos del hecho" : imputacionNotificada ? "Documento y notificación registrados" : "Lista para generar y notificar",
+    },
+    {
+      titulo: "Notificación", estado: !hechoCompleto ? "no-disponible" : imputacionNotificada ? "completo" : "pendiente",
+      detalle: imputacionNotificada ? formatDate(String(caso.imputacion_generada_at).slice(0, 10)) : "Registre la fecha cuando se notifique",
+    },
+    {
+      titulo: "Descargo", estado: !imputacionNotificada ? "no-disponible" : caso.fecha_descargo ? "completo" : plazoVencido ? "vencido" : "pendiente",
+      detalle: !imputacionNotificada ? "Disponible después de la notificación" : caso.fecha_descargo ? `Recibido el ${formatDate(caso.fecha_descargo)}` : plazoVencido ? "Plazo vencido sin descargo" : `Plazo vigente hasta el ${formatDate(fechaLimite)}`,
+    },
+    {
+      titulo: "Evaluación", estado: !puedeEvaluar ? "no-disponible" : caso.sancion_analisis_texto ? "completo" : "pendiente",
+      detalle: !puedeEvaluar ? "Disponible al recibir el descargo o vencer el plazo" : caso.sancion_analisis_texto ? "Análisis y tercio registrados" : "Resuma el descargo y complete el análisis",
+    },
+    {
+      titulo: "Orden", estado: !puedeEvaluar ? "no-disponible" : ordenGenerada ? "completo" : "pendiente",
+      detalle: !puedeEvaluar ? "Disponible después de la evaluación" : ordenGenerada ? `Generada el ${formatDate(String(caso.sancion_generada_at).slice(0, 10))}` : "Pendiente de generar la orden",
+    },
+    {
+      titulo: "Cierre", estado: !ordenGenerada ? "no-disponible" : ordenNotificada ? "completo" : "pendiente",
+      detalle: !ordenGenerada ? "Disponible después de generar la orden" : ordenNotificada ? `Orden notificada el ${formatDate(String(caso.orden_notificada_at).slice(0, 10))}` : "Registre la notificación de la orden",
+    },
   ];
-  return `<ol class="case-timeline">${pasos.map((paso) => `<li class="${paso.listo ? "is-complete" : ""}"><span class="timeline-dot"></span><div><strong>${paso.titulo}</strong><small>${paso.listo && paso.fecha ? formatDate(String(paso.fecha).slice(0, 10)) : "Pendiente"}</small></div></li>`).join("")}</ol>`;
+  const etiquetas = { completo: "Completo", pendiente: "Pendiente", vencido: "Vencido", "no-disponible": "No disponible" };
+  return `<ol class="case-timeline case-timeline-guide">${pasos.map((paso) => `
+    <li class="is-${paso.estado}">
+      <span class="timeline-dot"></span>
+      <div><strong>${paso.titulo}</strong><span class="timeline-stage-status">${etiquetas[paso.estado]}</span><small>${escapeHtml(paso.detalle)}</small></div>
+    </li>
+  `).join("")}</ol>`;
 }
 
 function colorTema(varName) {
@@ -1279,7 +1316,7 @@ async function renderCasoDetail(caso) {
         ${progresoCasoHtml(caso)}
       </div>
       <div class="timeline-card">
-        <div class="detail-card-header"><h3>Ruta del expediente</h3><span class="muted small">Seguimiento cronológico</span></div>
+        <div class="detail-card-header"><h3>Guía del trámite</h3><span class="muted small">Qué sigue en el expediente</span></div>
         ${cronologiaCasoHtml(caso)}
       </div>
       ${!puedeDescargar ? `<p class="muted small">Para poder generar el documento, verifique que el código de infracción sea Leve válido (Anexo I) y que el oficial que constató ("${escapeHtml(caso.oficial_constato || "")}") esté registrado en Efectivos.</p>` : ""}

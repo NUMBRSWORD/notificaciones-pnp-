@@ -294,12 +294,18 @@ tbody tr:last-child td { border-bottom: none; }
 .timeline-card { margin: 0 0 18px; padding: 16px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; }
 .case-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; padding: 0; margin: 16px 0 0; list-style: none; }
 .case-timeline li { position: relative; display: flex; align-items: flex-start; gap: 8px; min-width: 0; color: var(--text-muted); }
-.case-timeline strong, .case-timeline small { display: block; }
+.case-timeline strong, .case-timeline small, .timeline-stage-status { display: block; }
 .case-timeline strong { color: inherit; font-size: 0.78rem; line-height: 1.25; }
 .case-timeline small { margin-top: 3px; font-size: 0.72rem; }
 .timeline-dot { flex: 0 0 auto; width: 10px; height: 10px; margin-top: 3px; border: 2px solid var(--border); border-radius: 50%; }
 .case-timeline .is-complete { color: var(--text); }
 .case-timeline .is-complete .timeline-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.timeline-stage-status { width: fit-content; margin-top: 5px; padding: 2px 6px; border-radius: 999px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+.case-timeline .is-complete .timeline-stage-status { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.case-timeline .is-vencido { color: var(--danger); }
+.case-timeline .is-vencido .timeline-dot { border-color: var(--danger); background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.case-timeline .is-vencido .timeline-stage-status { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.case-timeline .is-no-disponible { opacity: 0.58; }
 
 /* Control de calidad previo y datos que se insertarán en los documentos. */
 .quality-panel, .document-preview { margin: 18px 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elev); }
