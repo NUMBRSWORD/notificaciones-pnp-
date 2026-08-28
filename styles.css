@@ -76,7 +76,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand.center { flex-direction: column; text-align: center; gap: 6px; margin-bottom: 8px; }
-.brand-copy { display: flex; flex-direction: column; gap: 1px; }
+.brand-titles { display: flex; flex-direction: column; line-height: 1.2; }
 .brand-badge {
   background: var(--accent); color: #fff; font-weight: 700;
   font-size: 0.75rem; letter-spacing: 0.05em;
@@ -84,7 +84,13 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 .brand-badge.lg { font-size: 1rem; padding: 8px 14px; border-radius: 8px; }
 .brand-title { font-weight: 700; }
-.brand-subtitle { color: var(--text-muted); font-size: 0.72rem; }
+.brand-sub { color: var(--text-muted); font-size: 0.72rem; }
+.brand-sub strong { color: var(--accent); font-weight: 700; letter-spacing: 0.02em; }
+.uso-interno-chip {
+  margin: 8px 0 0; padding: 6px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 0.74rem; font-weight: 600; text-align: center;
+}
 .tabs { display: flex; gap: 4px; flex: 1; }
 .tab-btn {
   background: transparent; border: none; color: var(--text-muted);
