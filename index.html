@@ -101,10 +101,15 @@
         <input id="searchCasos" type="search" placeholder="Buscar por nombre, apellido o código..." />
         <label class="inline-filter">Desde <input id="filtroDesde" type="date" /></label>
         <label class="inline-filter">Hasta <input id="filtroHasta" type="date" /></label>
-        <button id="btnLimpiarFiltroFecha" class="btn-ghost">Limpiar fechas</button>
-        <button id="btnExportarExcel" class="btn-secondary">Exportar a Excel</button>
-        <button id="btnResumenEjecutivo" class="btn-secondary">✨ Resumen ejecutivo IA</button>
         <button id="btnNuevoCaso" class="btn-primary">+ Nuevo caso</button>
+        <details class="actions-more">
+          <summary class="btn-secondary">Más acciones</summary>
+          <div class="actions-more-menu">
+            <button id="btnLimpiarFiltroFecha" class="btn-ghost">Limpiar fechas</button>
+            <button id="btnExportarExcel" class="btn-ghost">Exportar a Excel</button>
+            <button id="btnResumenEjecutivo" class="btn-ghost">✨ Resumen ejecutivo IA</button>
+          </div>
+        </details>
       </div>
     </div>
     <div id="casosResumenRapido" class="quick-summary" aria-live="polite"></div>
@@ -132,16 +137,20 @@
           <tr>
             <th>Grado</th>
                 <th>Nombres y apellidos</th>
-            <th>Fecha del hecho</th>
+            <th class="column-secondary">Fecha del hecho</th>
             <th>Código infracción</th>
-            <th>Oficial que constató</th>
+            <th class="column-secondary">Oficial que constató</th>
             <th>Etapa actual</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="casosTableBody"></tbody>
       </table>
-      <p id="casosEmpty" class="muted hidden">No hay casos registrados.</p>
+      <div id="casosEmpty" class="empty-state hidden">
+        <strong>Aún no hay expedientes registrados</strong>
+        <span class="muted">Cree el primer caso para iniciar el seguimiento.</span>
+        <button type="button" id="btnCrearPrimerCaso" class="btn-primary">+ Crear primer caso</button>
+      </div>
     </div>
   </section>
 
@@ -353,6 +362,19 @@
       </label>
       <label>Oficial que constató (superior que firma la imputación)
         <input type="text" id="fOficialConstato" required placeholder="Ej. TNTE PNP ZEGOBIA QUISPE" />
+      </label>
+      <label>Cargo del oficial para el sello
+        <input type="text" id="fOficialCargo" list="listaCargosOficial" value="OFICIAL DE PERMANENCIA" required placeholder="Ej. OFICIAL DE RONDA" />
+        <datalist id="listaCargosOficial">
+          <option value="OFICIAL DE PERMANENCIA"></option>
+          <option value="OFICIAL DE RONDA"></option>
+          <option value="JEFE DE PATRULLA"></option>
+          <option value="JEFE DE SECCIÓN"></option>
+          <option value="JEFE DE UNIDAD"></option>
+          <option value="COMISARIO"></option>
+          <option value="JEFE DE INVESTIGACIÓN"></option>
+        </datalist>
+        <span class="form-help">Seleccione un cargo frecuente o escriba el cargo que corresponda. Se insertará en el sello.</span>
       </label>
       <label>Archivo de sustento (opcional: foto, PDF, parte, etc.)
         <input type="file" id="fArchivoSustento" accept="application/pdf,image/*" />

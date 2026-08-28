@@ -355,7 +355,8 @@ function vistaPreviaImputacion(caso) {
     renderVistaPreviaDocumento("Inicio de Imputación", [
       ["Investigado", datos.investigado_completo], ["Infracción", datos.codigo_infraccion_texto],
       ["Hecho concreto", datos.descripcion_hecho], ["Bien jurídico", datos.bien_juridico],
-      ["Sanción prevista", datos.sancion_texto], ["Firma", datos.superior_completo], ["Fecha", datos.fecha_larga],
+      ["Sanción prevista", datos.sancion_texto], ["Firma", datos.superior_completo],
+      ["Cargo en sello", datos.oficial_cargo], ["Fecha", datos.fecha_larga],
     ]);
   } catch (error) { renderErrorVistaPrevia("Inicio de Imputación", error); }
 }
@@ -669,7 +670,9 @@ async function loadProfile(userId, email) {
   // propios datos. Si entró con un correo real (autoregistro), no hay CIP.
   const cipMatch = /^(\d+)@imputacionpnp\.local$/.exec(state.email || "");
   state.cip = cipMatch ? cipMatch[1] : null;
-  $("userEmail").textContent = state.email;
+  // Para los oficiales creados por CIP se muestra ese identificador, no el
+  // correo técnico interno que usa Supabase para iniciar sesión.
+  $("userEmail").textContent = state.cip ? `CIP ${state.cip}` : state.email;
   $("userRole").textContent = state.role;
   document.querySelectorAll(".admin-only").forEach((el) => {
     el.classList.toggle("hidden", state.role !== "admin");
@@ -773,16 +776,19 @@ function renderResumenRapido() {
   const pendientes = casos.filter((c) => !c.imputacion_generada_at).length;
   const vencidos = casos.filter((c) => c.imputacion_generada_at && !c.fecha_descargo && !c.sancion_generada_at && plazoDescargoVencido(c)).length;
   const conDescargo = casos.filter((c) => c.fecha_descargo && !c.sancion_generada_at).length;
+  const porCerrar = casos.filter((c) => c.sancion_generada_at && !c.orden_notificada_at).length;
   $("casosResumenRapido").innerHTML = `
     <div class="quick-summary-copy">
-      <span class="eyebrow">Vista rápida</span>
+      <span class="eyebrow">Centro operativo</span>
       <strong>${casos.length ? "Así está la carga de trabajo hoy" : "Aún no hay expedientes registrados"}</strong>
       <span class="muted small">${casos.length ? "Priorice los casos con plazo vencido o documentos pendientes." : "Cree el primer caso para iniciar el seguimiento."}</span>
     </div>
     <div class="quick-summary-stats">
+      <div><b>${casos.length}</b><span>expedientes</span></div>
       <div><b>${pendientes}</b><span>por notificar</span></div>
       <div class="${vencidos ? "is-urgent" : ""}"><b>${vencidos}</b><span>plazo vencido</span></div>
-      <div><b>${conDescargo}</b><span>con descargo</span></div>
+      <div class="${conDescargo ? "is-ready" : ""}"><b>${conDescargo}</b><span>con descargo</span></div>
+      <div class="${porCerrar ? "is-pending" : ""}"><b>${porCerrar}</b><span>por cerrar</span></div>
     </div>`;
 }
 
@@ -892,10 +898,10 @@ function renderCasosTable(list) {
     const puedeDescargar = puedeGenerarImputacion(c, state.efectivos);
     tr.innerHTML = `
       <td>${escapeHtml(c.grado || "")}</td>
-      <td>${escapeHtml(nombreInvestigadoVisible(c))}</td>
-      <td>${formatDate(c.fecha_hecho)}</td>
+      <td class="case-person"><strong>${escapeHtml(nombreInvestigadoVisible(c))}</strong><span>${escapeHtml(c.unidad_investigado || "Expediente disciplinario")}</span></td>
+      <td class="column-secondary">${formatDate(c.fecha_hecho)}</td>
       <td>${escapeHtml(c.codigo_infraccion || "")}</td>
-      <td>${escapeHtml(c.oficial_constato || "-")}</td>
+      <td class="column-secondary">${escapeHtml(c.oficial_constato || "-")}</td>
       <td>${progresoCasoHtml(c)}</td>
       <td class="row-actions">${puedeDescargar ? `<button type="button" class="btn-secondary btn-descargar-imputacion" title="Descargar Inicio de Imputación de Infracción Leve">⬇ Imputación</button>` : ""} <span class="row-chevron">›</span></td>
     `;
@@ -1364,10 +1370,6 @@ async function renderCasoDetail(caso) {
           <button type="button" class="btn-secondary" id="btnDescargarImputacion" ${puedeDescargar ? "" : "disabled"}>⬇ Descargar Imputación</button>
         </div>
       </div>
-      <div class="detail-progress">
-        <span class="detail-progress-label">Estado del expediente</span>
-        ${progresoCasoHtml(caso)}
-      </div>
       <div class="timeline-card">
         <div class="detail-card-header"><h3>Guía del trámite</h3><span class="muted small">Qué sigue en el expediente</span></div>
         ${cronologiaCasoHtml(caso)}
@@ -1383,6 +1385,7 @@ async function renderCasoDetail(caso) {
         <div class="detail-field"><div class="label">Fecha del hecho</div><div class="value">${formatDate(caso.fecha_hecho)}</div></div>
         <div class="detail-field"><div class="label">Código de infracción</div><div class="value">${escapeHtml(caso.codigo_infraccion || "-")}${infraccion ? ` — ${escapeHtml(infraccion.bienJuridico)}` : ""}</div></div>
         <div class="detail-field"><div class="label">Oficial que constató</div><div class="value">${escapeHtml(caso.oficial_constato || "-")}</div></div>
+        <div class="detail-field"><div class="label">Cargo para el sello</div><div class="value">${escapeHtml(caso.oficial_cargo || "OFICIAL DE PERMANENCIA")}</div></div>
         <div class="detail-field"><div class="label">Unidad / Sub-unidad</div><div class="value">${escapeHtml(caso.unidad_investigado || "-")}</div></div>
         <div class="detail-field"><div class="label">Archivo de sustento</div><div class="value">${sustentoArchivo}</div></div>
         <div class="detail-field">
@@ -1985,9 +1988,10 @@ $("efectivoForm").addEventListener("submit", async (e) => {
 });
 
 // ---------- Nuevo caso modal ----------
-$("btnNuevoCaso").addEventListener("click", () => {
+function abrirModalNuevoCaso() {
   $("casoForm").reset();
   $("fUnidad").value = "DIVOPUS 3-CPNP VENTANILLA.";
+  $("fOficialCargo").value = "OFICIAL DE PERMANENCIA";
   $("lookupResult").classList.add("hidden");
   $("casoFormError").classList.add("hidden");
   $("infraccionPreview").classList.add("hidden");
@@ -2000,7 +2004,10 @@ $("btnNuevoCaso").addEventListener("click", () => {
   const yoMismo = state.cip ? state.efectivos.find((ef) => ef.cip === state.cip) : null;
   $("fOficialConstato").value = yoMismo ? `${yoMismo.grado || ""} ${yoMismo.apellidos_nombres || ""}`.replace(/\s+/g, " ").trim() : "";
   $("modalNuevoCaso").classList.remove("hidden");
-});
+}
+
+$("btnNuevoCaso").addEventListener("click", abrirModalNuevoCaso);
+$("btnCrearPrimerCaso")?.addEventListener("click", abrirModalNuevoCaso);
 $("btnCerrarModal").addEventListener("click", closeModal);
 $("btnCancelarCaso").addEventListener("click", closeModal);
 function closeModal() { $("modalNuevoCaso").classList.add("hidden"); }
@@ -2064,6 +2071,7 @@ $("casoForm").addEventListener("submit", async (e) => {
     descripcion_hecho: $("fDescripcionHecho").value.trim(),
     unidad_investigado: $("fUnidad").value.trim(),
     oficial_constato: oficialConstatoTexto,
+    oficial_cargo: $("fOficialCargo").value.trim(),
     // Igual que en moral-y-disciplina: la política de RLS usa este CIP para
     // decidir qué casos puede ver cada oficial, no solo el admin.
     oficial_constato_cip: buscarOficialConstato(oficialConstatoTexto, state.efectivos)?.cip || null,

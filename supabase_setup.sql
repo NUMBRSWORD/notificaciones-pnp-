@@ -58,6 +58,7 @@ create table public.casos (
   fecha_hecho date not null,
   descripcion_hecho text not null,
   oficial_constato text,
+  oficial_cargo text default 'OFICIAL DE PERMANENCIA',
   unidad_investigado text not null default 'DIVOPUS 3-CPNP VENTANILLA.',
   archivo_sustento_path text,
   archivo_sustento_nombre text,
