@@ -182,6 +182,55 @@ function esResumenDescargoInsuficiente(texto) {
   return !resumen || /^El descargo presentado debe ser valorado junto con el archivo original\.?$/i.test(resumen);
 }
 
+// ---------- Borrador local de la Orden de Sanción ----------
+// El expediente se guarda en Supabase al generar la orden. Mientras se
+// redacta, el borrador se conserva solo en este navegador y para este usuario,
+// evitando que un texto legal extenso se pierda al actualizar o navegar.
+const PREFIJO_BORRADOR_SANCION = "pnp-ventanilla:borrador-orden:v1";
+let temporizadorAutoguardadoSancion = null;
+
+function claveBorradorSancion(casoId) {
+  const usuario = state.session?.user?.id || state.email || state.cip || "usuario";
+  return `${PREFIJO_BORRADOR_SANCION}:${usuario}:${casoId}`;
+}
+
+function leerBorradorSancion(casoId) {
+  try {
+    const borrador = JSON.parse(localStorage.getItem(claveBorradorSancion(casoId)) || "null");
+    return borrador && typeof borrador === "object" ? borrador : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function actualizarEstadoAutoguardado(fechaISO, recuperado = false) {
+  const estado = $("sancionAutoguardado");
+  if (!estado) return;
+  const hora = fechaISO ? new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(fechaISO)) : "";
+  estado.textContent = recuperado ? `Se recuperó el borrador local (${hora}).` : `Borrador guardado a las ${hora}.`;
+}
+
+function guardarBorradorSancion(casoId) {
+  const seleccion = datosSeleccionOrdenDesdePantalla();
+  const actualizadoAt = new Date().toISOString();
+  try {
+    localStorage.setItem(claveBorradorSancion(casoId), JSON.stringify({ ...seleccion, actualizadoAt }));
+    actualizarEstadoAutoguardado(actualizadoAt);
+  } catch (err) {
+    console.warn("No se pudo guardar el borrador local de la orden:", err);
+  }
+}
+
+function programarAutoguardadoSancion(casoId) {
+  clearTimeout(temporizadorAutoguardadoSancion);
+  temporizadorAutoguardadoSancion = setTimeout(() => guardarBorradorSancion(casoId), 900);
+}
+
+function eliminarBorradorSancion(casoId) {
+  clearTimeout(temporizadorAutoguardadoSancion);
+  try { localStorage.removeItem(claveBorradorSancion(casoId)); } catch (_) { /* El documento ya se generó aunque el navegador bloquee Storage. */ }
+}
+
 // ---------- Control de calidad y vista previa de documentos ----------
 // Estas comprobaciones usan los mismos criterios que los generadores. Así el
 // oficial puede corregir todos los datos pendientes antes de descargar un
@@ -1286,6 +1335,10 @@ async function renderCasoDetail(caso) {
   const fechaLimite = fechaLimiteDescargo(caso);
   const puedeSancion = puedeGenerarOrdenSancion(caso, state.efectivos);
   const opcionesSancion = opcionesTercio(caso.codigo_infraccion) || [];
+  const borradorSancion = leerBorradorSancion(caso.id);
+  const tercioSancionInicial = borradorSancion?.tercioValue || caso.sancion_tercio_label || "";
+  const descargoSancionInicial = borradorSancion?.descargoTexto ?? caso.sancion_descargo_texto ?? (caso.fecha_descargo ? "" : "El investigado no presentó su descargo por escrito dentro del plazo de un (01) día hábil establecido por ley, conforme acta respectiva, precluyendo su derecho a la defensa en la presente etapa procedimental.");
+  const analisisSancionInicial = borradorSancion?.analisisTexto ?? caso.sancion_analisis_texto ?? "";
 
   const { data: versionesDocs } = await supabase
     .from("documentos_generados")
@@ -1389,15 +1442,16 @@ async function renderCasoDetail(caso) {
         <form id="sancionForm">
           <div class="label" style="margin-bottom:8px">Sanción a imponer (evaluando el descargo${caso.fecha_descargo ? " — puede marcarla usted o dejar que la IA la elija" : ""})</div>
           ${opcionesSancion.map((o) => {
-            const marcado = caso.sancion_tercio_label === o.value;
+            const marcado = tercioSancionInicial === o.value;
             return `<label class="checkbox-row"><input type="radio" name="sancionTercio" value="${o.value}" ${marcado ? "checked" : ""} required /> ${escapeHtml(o.label)}</label>`;
           }).join("")}
           <label>Descargo del investigado (resumen de puntos relevantes y argumentos de defensa${caso.fecha_descargo ? " — deje en blanco y presione \"Analizar con IA\" para que se lea solo del archivo subido" : ""})
-            <textarea id="sSancionDescargo" rows="4" placeholder="${caso.fecha_descargo ? "Primero use 'Analizar con IA' o escriba un resumen propio. No copie el descargo completo." : ""}">${escapeHtml(caso.sancion_descargo_texto || (caso.fecha_descargo ? "" : "El investigado no presentó su descargo por escrito dentro del plazo de un (01) día hábil establecido por ley, conforme acta respectiva, precluyendo su derecho a la defensa en la presente etapa procedimental."))}</textarea>
+            <textarea id="sSancionDescargo" rows="4" placeholder="${caso.fecha_descargo ? "Primero use 'Analizar con IA' o escriba un resumen propio. No copie el descargo completo." : ""}">${escapeHtml(descargoSancionInicial)}</textarea>
           </label>
           <label>Análisis y evaluación ${caso.fecha_descargo ? "(notas sueltas o texto final)" : "(se completa solo al elegir el tercio; puede editarlo)"}
-            <textarea id="sSancionAnalisis" rows="6" required placeholder="Anote qué se acredita, qué alega el investigado, y por qué corresponde el tercio elegido... o escriba el texto final directamente.">${escapeHtml(caso.sancion_analisis_texto || "")}</textarea>
+            <textarea id="sSancionAnalisis" rows="6" required placeholder="Anote qué se acredita, qué alega el investigado, y por qué corresponde el tercio elegido... o escriba el texto final directamente.">${escapeHtml(analisisSancionInicial)}</textarea>
           </label>
+          <p id="sancionAutoguardado" class="muted small" aria-live="polite">${borradorSancion?.actualizadoAt ? `Se recuperó el borrador local (${new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(borradorSancion.actualizadoAt))}).` : "Los textos se guardan automáticamente en este navegador."}</p>
           ${caso.fecha_descargo ? `
           <div class="modal-actions" style="justify-content:flex-start; margin-bottom:10px">
             <button type="button" class="btn-secondary" id="btnAnalizarDescargoIA">✨ Analizar descargo con IA</button>
@@ -1465,6 +1519,16 @@ async function renderCasoDetail(caso) {
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
   $("btnVerificarNotifIA")?.addEventListener("click", () => verificarNotificacionOrdenIA(caso));
   $("ordenNotifForm")?.addEventListener("submit", (e) => submitNotificacionOrden(e, caso));
+
+  const descargoSancionEl = $("sSancionDescargo");
+  const analisisSancionEl = $("sSancionAnalisis");
+  if (descargoSancionEl && analisisSancionEl) {
+    descargoSancionEl.addEventListener("input", () => programarAutoguardadoSancion(caso.id));
+    analisisSancionEl.addEventListener("input", () => programarAutoguardadoSancion(caso.id));
+    document.querySelectorAll('input[name="sancionTercio"]').forEach((radio) => {
+      radio.addEventListener("change", () => programarAutoguardadoSancion(caso.id));
+    });
+  }
 
   const analisisEl = $("sSancionAnalisis");
   if (analisisEl && !caso.fecha_descargo) {
@@ -1733,6 +1797,7 @@ async function analizarDescargoConIA(caso) {
       const radio = [...document.querySelectorAll('input[name="sancionTercio"]')].find((r) => r.value === data.tercio_value);
       if (radio) radio.checked = true;
     }
+    guardarBorradorSancion(caso.id);
     statusEl.textContent = "Listo — la IA evaluó el descargo y eligió el tercio. Revise antes de guardar.";
   } catch (err) {
     console.error(err);
@@ -1841,6 +1906,7 @@ async function submitSancion(e, caso) {
       sancion_descargo_texto: descargoTexto,
     }).eq("id", caso.id);
     if (error) { errEl.textContent = "Se generó el documento, pero no se pudo guardar la decisión: " + error.message; errEl.classList.remove("hidden"); return; }
+    eliminarBorradorSancion(caso.id);
     openCasoDetail(caso.id);
   } catch (err) {
     console.error(err);
