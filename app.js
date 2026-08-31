@@ -1530,6 +1530,21 @@ async function renderCasoDetail(caso) {
       }))).join("")
     : "";
 
+  // El cierre (PDF firmado, HT y Oficio) permanece dentro de la bandeja de
+  // recepción, pero el administrador también lo ve al final del expediente.
+  const { data: expedienteCerrado } = isAdmin
+    ? await supabase.from("expedientes_remitidos").select("*").eq("caso_id", caso.id).maybeSingle()
+    : { data: null };
+  const cierreArchivo = expedienteCerrado
+    ? await fileLinkHtml("expedientes-terminados-pnp", expedienteCerrado.archivo_path, expedienteCerrado.archivo_nombre)
+    : "";
+  const cierreHt = expedienteCerrado
+    ? await fileLinkHtml("expedientes-terminados-pnp", expedienteCerrado.archivo_ht_path, expedienteCerrado.archivo_ht_nombre)
+    : "";
+  const cierreOficio = expedienteCerrado
+    ? await fileLinkHtml("expedientes-terminados-pnp", expedienteCerrado.archivo_oficio_path, expedienteCerrado.archivo_oficio_nombre)
+    : "";
+
   $("casoDetailContent").innerHTML = `
     <div class="detail-card">
       <div class="detail-card-header">
@@ -1674,6 +1689,22 @@ async function renderCasoDetail(caso) {
       <div class="detail-grid">${versionesHtml}</div>
     </div>
     ` : ""}
+
+    ${isAdmin && caso.sancion_generada_at && caso.orden_notificada_at ? `
+    <div class="detail-card cierre-administrativo-card">
+      <div class="detail-card-header"><div><span class="eyebrow">Cierre administrativo</span><h3>Expediente, HT y Oficio</h3></div><span class="reception-status">${escapeHtml(expedienteCerrado ? etiquetaEstadoRecepcion(expedienteCerrado.estado) : "Pendiente de registro")}</span></div>
+      ${expedienteCerrado ? `
+        <div class="detail-grid cierre-administrativo-grid">
+          <div class="detail-field"><div class="label">Expediente firmado</div><div class="value">${cierreArchivo}</div></div>
+          <div class="detail-field"><div class="label">HT</div><div class="value">${cierreHt}</div></div>
+          <div class="detail-field"><div class="label">Oficio</div><div class="value">${cierreOficio}</div></div>
+          <div class="detail-field"><div class="label">Carpeta de archivo</div><div class="value storage-path">${escapeHtml(expedienteCerrado.carpeta_archivo || "-")}</div></div>
+        </div>
+        ${expedienteCerrado.observacion ? `<p class="reception-observation"><b>Observación:</b> ${escapeHtml(expedienteCerrado.observacion)}</p>` : ""}
+      ` : `<p class="muted small">El expediente está cerrado, pero aún no fue registrado en Recepción. Regístrelo allí para adjuntar el PDF firmado, el HT y el Oficio.</p>`}
+      <button type="button" id="btnAbrirRecepcionDesdeCaso" class="btn-secondary">Abrir Recepción</button>
+    </div>
+    ` : ""}
   `;
 
   $("btnDescargarImputacion")?.addEventListener("click", async (e) => {
@@ -1693,6 +1724,7 @@ async function renderCasoDetail(caso) {
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
   $("btnVerificarNotifIA")?.addEventListener("click", () => verificarNotificacionOrdenIA(caso));
   $("ordenNotifForm")?.addEventListener("submit", (e) => submitNotificacionOrden(e, caso));
+  $("btnAbrirRecepcionDesdeCaso")?.addEventListener("click", () => { showView("view-recepcion"); loadCasos().then(loadExpedientesRemitidos); });
 
   const descargoSancionEl = $("sSancionDescargo");
   const analisisSancionEl = $("sSancionAnalisis");
