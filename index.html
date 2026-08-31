@@ -195,12 +195,29 @@
     <div class="view-header">
       <div>
         <h2>Recepción de expedientes cerrados</h2>
-        <p class="muted view-subtitle">PDFs firmados remitidos por los oficiales, ordenados automáticamente por fecha del hecho, investigado e infracción.</p>
+        <p class="muted view-subtitle">Registro interno de expedientes firmados, HT y oficios; ordenado automáticamente por fecha del hecho, investigado e infracción.</p>
       </div>
-      <input id="buscarRecepcion" type="search" placeholder="Buscar por nombre, CIP o código..." />
+      <div class="view-actions"><input id="buscarRecepcion" type="search" placeholder="Buscar por nombre, CIP o código..." /><button id="btnRegistrarExpedienteRecibido" type="button" class="btn-primary">+ Registrar expediente recibido</button></div>
     </div>
+    <section id="registroRecepcionPanel" class="detail-card hidden">
+      <div class="detail-card-header"><div><span class="eyebrow">Registro administrativo</span><h3>Ingresar expediente firmado</h3></div><button id="btnCancelarRegistroRecepcion" type="button" class="btn-ghost">Cerrar</button></div>
+      <p class="muted small">Elija un expediente ya cerrado. Su nombre, fecha del hecho, CIP e infracción se registran automáticamente.</p>
+      <form id="registroRecepcionForm">
+        <label>Expediente cerrado
+          <select id="fCasoRecibido" required></select>
+        </label>
+        <label>Expediente final firmado (PDF o fotos)
+          <input type="file" id="fArchivoExpedienteRecibido" accept="application/pdf,image/*" capture="environment" required />
+        </label>
+        <label>Observación de recepción (opcional)
+          <textarea id="fObservacionExpedienteRecibido" rows="2" placeholder="Ej.: recibido físicamente y digitalizado."></textarea>
+        </label>
+        <p id="registroRecepcionError" class="error hidden"></p>
+        <button type="submit" class="btn-primary">Registrar expediente</button>
+      </form>
+    </section>
     <section class="reception-guide" aria-label="Flujo de recepción">
-      <span>1. Oficial remite</span><span>2. Usted revisa</span><span>3. Recibe u observa</span><span>4. Queda archivado</span>
+      <span>1. Recibe expediente</span><span>2. Registra PDF firmado</span><span>3. Adjunta HT y Oficio</span><span>4. Archiva</span>
     </section>
     <div id="recepcionResumen" class="quick-summary reception-summary" aria-live="polite"></div>
     <div id="recepcionEmpty" class="empty-state hidden">

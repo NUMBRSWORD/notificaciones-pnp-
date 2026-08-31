@@ -451,7 +451,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (target === "directivas") { showView("view-directivas"); loadDirectivasView(); }
     if (target === "agenda") { showView("view-agenda"); renderAgenda(); }
     if (target === "documentos") { showView("view-documentos"); loadDocumentosGenerados(); }
-    if (target === "recepcion") { showView("view-recepcion"); loadExpedientesRemitidos(); }
+    if (target === "recepcion") { showView("view-recepcion"); loadCasos().then(loadExpedientesRemitidos); }
     if (target === "panel") { showView("view-panel"); renderPanel(); }
     if (target === "historial") { showView("view-historial"); loadHistorial(); }
   });
@@ -946,16 +946,19 @@ async function renderExpedientesRemitidos() {
   $("recepcionEmpty").classList.toggle("hidden", lista.length > 0);
   const filas = await Promise.all(lista.map(async (item) => {
     const enlace = await fileLinkHtml("expedientes-terminados-pnp", item.archivo_path, item.archivo_nombre);
+    const enlaceHt = await fileLinkHtml("expedientes-terminados-pnp", item.archivo_ht_path, item.archivo_ht_nombre);
+    const enlaceOficio = await fileLinkHtml("expedientes-terminados-pnp", item.archivo_oficio_path, item.archivo_oficio_nombre);
     const esPendiente = item.estado === "remitido";
     return `<article class="reception-item estado-${escapeHtml(item.estado || "remitido")}">
       <div class="reception-item-main">
         <div class="reception-title-row"><span class="reception-status">${escapeHtml(etiquetaEstadoRecepcion(item.estado))}</span><strong>${escapeHtml(item.investigado_nombre || "Investigado sin nombre")}</strong></div>
         <div class="reception-meta"><span>📅 Falta: ${formatDate(item.fecha_hecho)}</span><span>⚖ ${escapeHtml(item.codigo_infraccion || "-")}</span><span>🪪 CIP investigado: ${escapeHtml(item.investigado_cip || "-")}</span></div>
-        <p class="muted small">Remitido por ${escapeHtml(item.remitido_por_cip ? `CIP ${item.remitido_por_cip}` : (item.remitido_por_email || "-"))} · ${formatFechaHora(String(item.remitido_at || "").slice(0, 10), String(item.remitido_at || "").slice(11, 16))}</p>
+        <p class="muted small">Registrado por ${escapeHtml(item.remitido_por_cip ? `CIP ${item.remitido_por_cip}` : (item.remitido_por_email || "-"))} · ${formatFechaHora(String(item.remitido_at || "").slice(0, 10), String(item.remitido_at || "").slice(11, 16))}</p>
         ${item.observacion ? `<p class="reception-observation"><b>Observación:</b> ${escapeHtml(item.observacion)}</p>` : ""}
         <p class="storage-path" title="Ruta en almacenamiento">📁 ${escapeHtml(item.carpeta_archivo || item.archivo_path || "")}</p>
       </div>
       <div class="reception-actions"><div>${enlace}</div>${esPendiente ? `<button type="button" class="btn-primary btn-recibir-expediente" data-id="${item.id}">✓ Recibir</button><button type="button" class="btn-secondary btn-observar-expediente" data-id="${item.id}">Observar</button>` : item.estado === "recibido" ? `<button type="button" class="btn-secondary btn-archivar-expediente" data-id="${item.id}">Archivar</button>` : ""}</div>
+      <details class="reception-documents"><summary class="btn-secondary">HT y Oficio</summary><div class="reception-documents-body"><div><span class="muted small">HT</span>${enlaceHt}</div><div><span class="muted small">Oficio</span>${enlaceOficio}</div><form class="form-documentos-cierre" data-id="${item.id}"><label>Adjuntar HT<input type="file" class="f-ht-cierre" accept="application/pdf,image/*" /></label><label>Adjuntar Oficio<input type="file" class="f-oficio-cierre" accept="application/pdf,image/*" /></label><button type="submit" class="btn-secondary">Guardar documentos</button></form></div></details>
     </article>`;
   }));
   $("recepcionLista").innerHTML = filas.join("");
@@ -965,6 +968,8 @@ async function renderExpedientesRemitidos() {
     const observacion = prompt("Indique qué debe corregir o completar el oficial:");
     if (observacion?.trim()) actualizarEstadoRecepcion(btn.dataset.id, "observado", observacion.trim());
   }));
+  document.querySelectorAll(".form-documentos-cierre").forEach((form) => form.addEventListener("submit", submitDocumentosCierre));
+  prepararFormularioRegistroRecepcion();
 }
 
 async function actualizarEstadoRecepcion(id, estado, observacion = null) {
@@ -976,51 +981,81 @@ async function actualizarEstadoRecepcion(id, estado, observacion = null) {
   loadExpedientesRemitidos();
 }
 
-$("buscarRecepcion")?.addEventListener("input", renderExpedientesRemitidos);
+function prepararFormularioRegistroRecepcion() {
+  const panel = $("registroRecepcionPanel");
+  const select = $("fCasoRecibido");
+  if (!panel || !select) return;
+  const registrados = new Set(state.expedientesRemitidos.map((item) => item.caso_id));
+  const disponibles = (state.casos || []).filter((caso) =>
+    caso.sancion_generada_at && caso.orden_notificada_at && !registrados.has(caso.id)
+  );
+  select.innerHTML = `<option value="">Seleccione un expediente cerrado...</option>${disponibles.map((caso) => `<option value="${escapeHtml(caso.id)}">${escapeHtml(`${nombreInvestigadoVisible(caso, true)} · Falta ${formatDate(caso.fecha_hecho)} · ${caso.codigo_infraccion}`)}</option>`).join("")}`;
+  $("btnRegistrarExpedienteRecibido").onclick = () => panel.classList.remove("hidden");
+  $("btnCancelarRegistroRecepcion").onclick = () => panel.classList.add("hidden");
+  $("registroRecepcionForm").onsubmit = submitRegistroRecepcion;
+}
 
-async function submitRemisionExpediente(e, caso) {
+async function submitRegistroRecepcion(e) {
   e.preventDefault();
-  const errorEl = $("remisionExpedienteError");
-  const okEl = $("remisionExpedienteOk");
-  errorEl.classList.add("hidden"); okEl.classList.add("hidden");
-  if (!caso.sancion_generada_at || !caso.orden_notificada_at) {
-    errorEl.textContent = "Solo se puede remitir un expediente después de generar y notificar la Orden de Sanción.";
-    errorEl.classList.remove("hidden"); return;
-  }
-  const archivo = $("fExpedienteCerrado").files[0];
-  if (!archivo) { errorEl.textContent = "Adjunte el expediente final firmado (PDF o fotos)."; errorEl.classList.remove("hidden"); return; }
-  const { data: existente, error: consultaError } = await supabase.from("expedientes_remitidos").select("*").eq("caso_id", caso.id).maybeSingle();
-  if (consultaError) { errorEl.textContent = "No se pudo verificar el estado de remisión: " + consultaError.message; errorEl.classList.remove("hidden"); return; }
-  if (existente && ["recibido", "archivado"].includes(existente.estado)) {
-    errorEl.textContent = "Este expediente ya fue recibido. Si necesita corregirlo, solicite que sea observado primero.";
-    errorEl.classList.remove("hidden"); return;
-  }
+  const errorEl = $("registroRecepcionError");
+  errorEl.classList.add("hidden");
+  const caso = state.casos.find((item) => item.id === $("fCasoRecibido").value);
+  const archivo = $("fArchivoExpedienteRecibido").files[0];
+  if (!caso || !archivo) { errorEl.textContent = "Seleccione un expediente cerrado y adjunte el PDF firmado."; errorEl.classList.remove("hidden"); return; }
   const boton = e.target.querySelector("button[type=submit]");
-  boton.disabled = true; boton.textContent = "Remitiendo...";
+  boton.disabled = true; boton.textContent = "Registrando...";
   try {
     const ruta = datosRutaExpedienteCerrado(caso, archivo.name);
     const { error: uploadError } = await supabase.storage.from("expedientes-terminados-pnp").upload(ruta.ruta, archivo, { upsert: false });
     if (uploadError) throw uploadError;
-    const registro = {
+    const ahora = new Date().toISOString();
+    const { error } = await supabase.from("expedientes_remitidos").insert({
       caso_id: caso.id, investigado_nombre: nombreInvestigadoVisible(caso, true), investigado_cip: ruta.cipInvestigado,
       fecha_hecho: caso.fecha_hecho, codigo_infraccion: caso.codigo_infraccion,
       remitido_por: state.session.user.id, remitido_por_email: state.email, remitido_por_cip: state.cip,
-      archivo_path: ruta.ruta, archivo_nombre: archivo.name, carpeta_archivo: ruta.carpeta,
-      observacion: $("fRemisionObservacion").value.trim() || null, estado: "remitido", remitido_at: new Date().toISOString(),
-    };
-    const respuesta = existente
-      ? await supabase.from("expedientes_remitidos").update(registro).eq("id", existente.id)
-      : await supabase.from("expedientes_remitidos").insert(registro);
-    if (respuesta.error) throw respuesta.error;
-    okEl.textContent = `Expediente remitido. Ruta asignada: ${ruta.carpeta}`;
-    okEl.classList.remove("hidden");
-    $("fExpedienteCerrado").value = "";
-    $("fRemisionObservacion").value = "";
+      remitido_at: ahora, archivo_path: ruta.ruta, archivo_nombre: archivo.name, carpeta_archivo: ruta.carpeta,
+      estado: "recibido", observacion: $("fObservacionExpedienteRecibido").value.trim() || null,
+      recibido_por: state.session.user.id, recibido_at: ahora,
+    });
+    if (error) throw error;
+    $("registroRecepcionPanel").classList.add("hidden");
+    e.target.reset();
+    await loadExpedientesRemitidos();
   } catch (error) {
-    errorEl.textContent = "No se pudo remitir el expediente: " + (error.message || error);
+    errorEl.textContent = "No se pudo registrar el expediente: " + (error.message || error);
     errorEl.classList.remove("hidden");
-  } finally { boton.disabled = false; boton.textContent = "Remitir expediente firmado"; }
+  } finally { boton.disabled = false; boton.textContent = "Registrar expediente"; }
 }
+
+async function submitDocumentosCierre(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const id = form.dataset.id;
+  const registro = state.expedientesRemitidos.find((item) => item.id === id);
+  const ht = form.querySelector(".f-ht-cierre").files[0];
+  const oficio = form.querySelector(".f-oficio-cierre").files[0];
+  if (!registro || (!ht && !oficio)) { alert("Adjunte por lo menos el HT o el Oficio."); return; }
+  const boton = form.querySelector("button[type=submit]");
+  boton.disabled = true; boton.textContent = "Guardando...";
+  try {
+    const cambios = {};
+    for (const [tipo, archivo] of [["ht", ht], ["oficio", oficio]]) {
+      if (!archivo) continue;
+      const ruta = `${registro.caso_id}/cierre/${tipo}_${Date.now()}_${segmentoRuta(archivo.name, `${tipo}.pdf`)}`;
+      const { error: uploadError } = await supabase.storage.from("expedientes-terminados-pnp").upload(ruta, archivo, { upsert: false });
+      if (uploadError) throw uploadError;
+      cambios[`archivo_${tipo}_path`] = ruta;
+      cambios[`archivo_${tipo}_nombre`] = archivo.name;
+    }
+    const { error } = await supabase.from("expedientes_remitidos").update(cambios).eq("id", id);
+    if (error) throw error;
+    await loadExpedientesRemitidos();
+  } catch (error) {
+    alert("No se pudieron guardar los documentos: " + (error.message || error));
+  } finally { boton.disabled = false; boton.textContent = "Guardar documentos"; }
+}
+
+$("buscarRecepcion")?.addEventListener("input", renderExpedientesRemitidos);
 
 function renderCasosTable(list) {
   casosVisibles = list;
@@ -1632,24 +1667,6 @@ async function renderCasoDetail(caso) {
     </div>
     ` : ""}
 
-    ${puedeGestionar && caso.sancion_generada_at && caso.orden_notificada_at ? `
-    <div class="detail-card remision-card">
-      <div class="detail-card-header"><div><span class="eyebrow">Cierre digital</span><h3>Remitir expediente firmado</h3></div><span class="reception-status">Listo para envío</span></div>
-      <p class="muted small">Adjunte el PDF final firmado. Desde el celular también puede tomar fotos del expediente; luego podrá sustituirse por un PDF unificado. Los datos de este caso se agregarán automáticamente a la bandeja de recepción.</p>
-      <div class="remision-folder-preview">📁 <span>${escapeHtml(datosRutaExpedienteCerrado(caso, "expediente_firmado.pdf").carpeta)}</span></div>
-      <form id="remisionExpedienteForm">
-        <label>Expediente final firmado (PDF o fotos)
-          <input type="file" id="fExpedienteCerrado" accept="application/pdf,image/*" capture="environment" required />
-        </label>
-        <label>Observación para recepción (opcional)
-          <textarea id="fRemisionObservacion" rows="2" placeholder="Ej.: expediente completo, firmado el día de hoy."></textarea>
-        </label>
-        <p id="remisionExpedienteError" class="error hidden"></p><p id="remisionExpedienteOk" class="success-message hidden"></p>
-        <button type="submit" class="btn-primary">Remitir expediente firmado</button>
-      </form>
-    </div>
-    ` : ""}
-
     ${versionesDocs?.length ? `
     <div class="detail-card">
       <h3>Versiones generadas</h3>
@@ -1676,7 +1693,6 @@ async function renderCasoDetail(caso) {
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
   $("btnVerificarNotifIA")?.addEventListener("click", () => verificarNotificacionOrdenIA(caso));
   $("ordenNotifForm")?.addEventListener("submit", (e) => submitNotificacionOrden(e, caso));
-  $("remisionExpedienteForm")?.addEventListener("submit", (e) => submitRemisionExpediente(e, caso));
 
   const descargoSancionEl = $("sSancionDescargo");
   const analisisSancionEl = $("sSancionAnalisis");

@@ -206,6 +206,13 @@ main { max-width: 1500px; margin: 0 auto; padding: 24px 20px 60px; }
 .storage-path { margin: 10px 0 0; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .72rem; overflow-wrap: anywhere; }
 .reception-actions { display: flex; flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 8px; min-width: 135px; }
 .reception-actions .file-link { display: block; padding: 8px 0; text-align: center; }
+.reception-documents { flex: 1 1 100%; border-top: 1px solid var(--border); padding-top: 12px; }
+.reception-documents > summary { width: fit-content; list-style: none; cursor: pointer; }
+.reception-documents > summary::-webkit-details-marker { display: none; }
+.reception-documents-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; margin-top: 14px; }
+.reception-documents-body > div { display: flex; flex-direction: column; gap: 4px; }
+.reception-documents-body .form-documentos-cierre { display: grid; grid-column: 1 / -1; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 10px; padding-top: 4px; }
+.reception-documents-body label { margin: 0; }
 .remision-card { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 .remision-folder-preview { margin: 14px 0; padding: 11px 12px; border-radius: 8px; background: var(--bg-elev); border: 1px dashed var(--border); color: var(--text-muted); font-size: .82rem; overflow-wrap: anywhere; }
 .success-message { color: var(--accent); background: var(--accent-soft); padding: 8px 12px; border-radius: 8px; font-size: .85rem; }
@@ -499,6 +506,7 @@ tbody tr:last-child td { border-bottom: none; }
   .reception-item { align-items: stretch; flex-direction: column; }
   .reception-actions { width: 100%; }
   .reception-actions .btn-primary, .reception-actions .btn-secondary { width: 100%; }
+  .reception-documents-body, .reception-documents-body .form-documentos-cierre { grid-template-columns: 1fr; }
   .reception-guide span:not(:last-child)::after { display: none; }
   .detail-progress { align-items: flex-start; flex-direction: column; }
   .asistente-widget { right: 12px; bottom: 12px; }
