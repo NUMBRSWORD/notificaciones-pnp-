@@ -185,6 +185,31 @@ main { max-width: 1500px; margin: 0 auto; padding: 24px 20px 60px; }
 .document-item > div:first-child { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .document-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Mesa de partes digital: las tarjetas priorizan el expediente y su estado. */
+.reception-guide { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; color: var(--text-muted); font-size: 0.78rem; }
+.reception-guide span { padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); }
+.reception-guide span:not(:last-child)::after { content: "→"; margin-left: 12px; color: var(--accent); }
+.reception-summary .quick-summary-stats { grid-template-columns: repeat(3, minmax(88px, 1fr)); }
+.reception-list { display: grid; gap: 12px; }
+.reception-item { display: flex; justify-content: space-between; gap: 18px; padding: 18px; background: var(--bg-card); border: 1px solid var(--border); border-left: 4px solid #e5ad53; border-radius: var(--radius); }
+.reception-item.estado-recibido { border-left-color: #69aaf0; }
+.reception-item.estado-observado { border-left-color: var(--danger); }
+.reception-item.estado-archivado { border-left-color: var(--accent); }
+.reception-item-main { min-width: 0; }
+.reception-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.reception-title-row strong { font-size: 1rem; }
+.reception-status { display: inline-flex; width: fit-content; padding: 4px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.estado-remitido .reception-status { color: #b67d1b; background: rgba(229, 173, 83, .15); }
+.estado-observado .reception-status { color: var(--danger); background: var(--danger-soft); }
+.reception-meta { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 9px; color: var(--text-muted); font-size: .82rem; }
+.reception-observation { margin: 10px 0 0; padding: 9px 11px; border-radius: 7px; background: var(--danger-soft); color: var(--text); font-size: .84rem; }
+.storage-path { margin: 10px 0 0; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .72rem; overflow-wrap: anywhere; }
+.reception-actions { display: flex; flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 8px; min-width: 135px; }
+.reception-actions .file-link { display: block; padding: 8px 0; text-align: center; }
+.remision-card { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.remision-folder-preview { margin: 14px 0; padding: 11px 12px; border-radius: 8px; background: var(--bg-elev); border: 1px dashed var(--border); color: var(--text-muted); font-size: .82rem; overflow-wrap: anywhere; }
+.success-message { color: var(--accent); background: var(--accent-soft); padding: 8px 12px; border-radius: 8px; font-size: .85rem; }
+
 .center-view {
   min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
 }
@@ -471,6 +496,10 @@ tbody tr:last-child td { border-bottom: none; }
   .agenda-item { grid-template-columns: 30px minmax(0, 1fr); align-items: flex-start; }
   .agenda-item .btn-primary { grid-column: 1 / -1; width: 100%; }
   .document-item { align-items: flex-start; flex-direction: column; }
+  .reception-item { align-items: stretch; flex-direction: column; }
+  .reception-actions { width: 100%; }
+  .reception-actions .btn-primary, .reception-actions .btn-secondary { width: 100%; }
+  .reception-guide span:not(:last-child)::after { display: none; }
   .detail-progress { align-items: flex-start; flex-direction: column; }
   .asistente-widget { right: 12px; bottom: 12px; }
   .asistente-fab { right: 16px; bottom: 16px; }

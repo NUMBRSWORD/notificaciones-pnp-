@@ -33,6 +33,7 @@
       <button class="tab-btn admin-only hidden" data-view="directivas">Directivas</button>
       <button class="tab-btn admin-only hidden" data-view="agenda">Agenda</button>
       <button class="tab-btn admin-only hidden" data-view="documentos">Documentos</button>
+      <button class="tab-btn admin-only hidden" data-view="recepcion">Recepción</button>
       <button class="tab-btn admin-only hidden" data-view="panel">Panel</button>
       <button class="tab-btn admin-only hidden" data-view="historial">Historial</button>
     </nav>
@@ -187,6 +188,26 @@
       <span class="muted">Los documentos que generes aparecerán aquí.</span>
     </div>
     <div id="documentosLista" class="document-list"></div>
+  </section>
+
+  <!-- RECEPCIÓN DE EXPEDIENTES CERRADOS -->
+  <section id="view-recepcion" class="view hidden">
+    <div class="view-header">
+      <div>
+        <h2>Recepción de expedientes cerrados</h2>
+        <p class="muted view-subtitle">PDFs firmados remitidos por los oficiales, ordenados automáticamente por fecha del hecho, investigado e infracción.</p>
+      </div>
+      <input id="buscarRecepcion" type="search" placeholder="Buscar por nombre, CIP o código..." />
+    </div>
+    <section class="reception-guide" aria-label="Flujo de recepción">
+      <span>1. Oficial remite</span><span>2. Usted revisa</span><span>3. Recibe u observa</span><span>4. Queda archivado</span>
+    </section>
+    <div id="recepcionResumen" class="quick-summary reception-summary" aria-live="polite"></div>
+    <div id="recepcionEmpty" class="empty-state hidden">
+      <strong>Aún no hay expedientes remitidos</strong>
+      <span class="muted">Cuando un oficial cierre y remita un expediente desde su caso, aparecerá aquí.</span>
+    </div>
+    <div id="recepcionLista" class="reception-list"></div>
   </section>
 
   <!-- EFECTIVOS -->

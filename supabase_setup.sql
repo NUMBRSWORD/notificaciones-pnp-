@@ -203,6 +203,39 @@ create policy "imputacion_pnp autenticados eliminan sustento"
   to authenticated
   using (bucket_id = 'casos-imputacion-pnp');
 
+-- ---------- Mesa de partes: expedientes cerrados ----------
+create table public.expedientes_remitidos (
+  id uuid primary key default gen_random_uuid(),
+  caso_id uuid not null unique references public.casos(id) on delete cascade,
+  investigado_nombre text not null,
+  investigado_cip text,
+  fecha_hecho date not null,
+  codigo_infraccion text,
+  remitido_por uuid not null references auth.users(id),
+  remitido_por_email text,
+  remitido_por_cip text,
+  remitido_at timestamptz not null default now(),
+  archivo_path text not null,
+  archivo_nombre text not null,
+  carpeta_archivo text not null,
+  estado text not null default 'remitido' check (estado in ('remitido', 'recibido', 'observado', 'archivado')),
+  observacion text,
+  recibido_por uuid references auth.users(id),
+  recibido_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.expedientes_remitidos enable row level security;
+create policy "admin ve toda la recepcion" on public.expedientes_remitidos for select to authenticated using (public.es_admin() or remitido_por = auth.uid());
+create policy "oficial remite su expediente cerrado" on public.expedientes_remitidos for insert to authenticated with check (remitido_por = auth.uid() and estado = 'remitido');
+create policy "oficial actualiza remision observada" on public.expedientes_remitidos for update to authenticated using (public.es_admin() or (remitido_por = auth.uid() and estado in ('remitido', 'observado'))) with check (public.es_admin() or (remitido_por = auth.uid() and estado = 'remitido'));
+create trigger expedientes_remitidos_set_updated_at before update on public.expedientes_remitidos for each row execute function public.set_updated_at();
+
+insert into storage.buckets (id, name, public)
+values ('expedientes-terminados-pnp', 'expedientes-terminados-pnp', false);
+create policy "remitentes suben expedientes cerrados" on storage.objects for insert to authenticated with check (bucket_id = 'expedientes-terminados-pnp');
+create policy "autenticados leen expedientes cerrados" on storage.objects for select to authenticated using (bucket_id = 'expedientes-terminados-pnp' and exists (select 1 from public.expedientes_remitidos e where e.archivo_path = name and (public.es_admin() or e.remitido_por = auth.uid())));
+
 -- ============================================================================
 -- Fin. Después de ejecutar esto:
 -- 1. Ve a Project Settings → API y copia la "Project URL" y la "anon public" key.
