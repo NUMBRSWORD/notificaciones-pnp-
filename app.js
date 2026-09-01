@@ -63,21 +63,35 @@ async function transcribirPaginasConIA(paginas, onEstado) {
   return textos.join("\n\n");
 }
 
-async function extractPdfText(file, onEstado) {
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    text += content.items.map((it) => it.str).join(" ") + "\n";
-  }
-  // Si el PDF es una foto/escaneo sin texto seleccionable, se recurre a IA con visión.
-  if (text.trim().length < 30) {
-    onEstado?.("Este archivo parece ser una imagen escaneada: preparando las páginas para leerlas con IA...");
+// Algunos PDFs escaneados traen una capa de texto muy pobre: pdf.js logra
+// extraer el membrete o la primera línea, pero no el contenido del descargo.
+// No basta con comprobar si hay "algo" de texto; se evalúa si hay texto útil
+// por página y si solo predominan los datos de trámite.
+function textoPdfPareceIncompleto(textosPorPagina) {
+  const paginas = textosPorPagina.map((texto) => String(texto || "").replace(/\s+/g, " ").trim());
+  const texto = paginas.join(" ");
+  const letras = (texto.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g) || []).length;
+  const paginasConPocoTexto = paginas.filter((pagina) => {
+    const letrasPagina = (pagina.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g) || []).length;
+    return letrasPagina < 140;
+  }).length;
+  const soloCabecera = /\b(administrado|sumilla|referencia|interpone descargo|notificaci[oó]n de presunta infracci[oó]n)\b/i.test(texto)
+    && !/\b(alega|sostiene|manifiesta|señala|argumenta|solicita|pide|niega|reconoce|justifica|porque|adjunta|acredita|prueba)\b/i.test(texto);
+
+  return letras < Math.max(450, paginas.length * 180)
+    || paginasConPocoTexto / Math.max(paginas.length, 1) >= 0.6
+    || soloCabecera;
+}
+
+// Renderiza y transcribe por lotes para que un descargo de muchas páginas no
+// acumule todas las imágenes en memoria del navegador antes de llamar a la IA.
+async function transcribirPdfConVisionIA(pdf, onEstado) {
+  const textos = [];
+  for (let inicio = 1; inicio <= pdf.numPages; inicio += PAGINAS_POR_LOTE_VISION) {
+    const fin = Math.min(pdf.numPages, inicio + PAGINAS_POR_LOTE_VISION - 1);
     const paginas = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
+    for (let numero = inicio; numero <= fin; numero++) {
+      const page = await pdf.getPage(numero);
       const viewport = page.getViewport({ scale: 1.8 });
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width;
@@ -85,7 +99,27 @@ async function extractPdfText(file, onEstado) {
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
       paginas.push({ data: canvasABase64Jpeg(canvas), mediaType: "image/jpeg" });
     }
-    text = await transcribirPaginasConIA(paginas, onEstado);
+    onEstado?.(`Leyendo con IA las páginas ${inicio}-${fin} de ${pdf.numPages}...`);
+    textos.push(await transcribirPaginasConIA(paginas));
+  }
+  return textos.join("\n\n");
+}
+
+async function extractPdfText(file, onEstado) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const textosPorPagina = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    textosPorPagina.push(content.items.map((it) => it.str).join(" "));
+  }
+  let text = textosPorPagina.join("\n");
+  // También se activa para OCR interno incompleto: así la IA con visión lee
+  // el documento real, no solo el encabezado que alcanzó a extraer el PDF.
+  if (textoPdfPareceIncompleto(textosPorPagina)) {
+    onEstado?.("El texto interno del PDF parece incompleto. Revisando todas las páginas con IA...");
+    text = await transcribirPdfConVisionIA(pdf, onEstado);
   }
   return text;
 }
