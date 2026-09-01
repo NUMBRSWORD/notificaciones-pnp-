@@ -209,7 +209,14 @@ function etiquetaEstadoRecepcion(estado) {
 
 function esResumenDescargoInsuficiente(texto) {
   const resumen = String(texto || "").replace(/\s+/g, " ").trim();
-  return !resumen || /^El descargo presentado debe ser valorado junto con el archivo original\.?$/i.test(resumen);
+  if (!resumen || /^El descargo presentado debe ser valorado junto con el archivo original\.?$/i.test(resumen)) return true;
+  // Un encabezado OCR (Administrado, Sumilla, Referencia, destinatario) no es
+  // una síntesis de defensa. La frase inicial automática se elimina antes de
+  // buscar argumentos para no confundir "expone" con un argumento real.
+  const contenido = resumen.replace(/^En su descargo, el investigado expone,? en síntesis,? los siguientes puntos relevantes:?\s*/i, "");
+  const pareceEncabezado = /\b(administrado|sumilla|referencia|interpone descargo|notificaci[oó]n de presunta infracci[oó]n|señor(?:a)?\s+(?:comandante|coronel|mayor|capit[aá]n|teniente))\b/i.test(contenido);
+  const tieneArgumento = /\b(alega|sostiene|manifiesta|señala|argumenta|solicita|pide|niega|reconoce|justifica|debido a|por cuanto|porque|adjunta|acredita|prueba|versi[oó]n de los hechos)\b/i.test(contenido);
+  return contenido.length < 90 || (pareceEncabezado && !tieneArgumento);
 }
 
 // ---------- Borrador local de la Orden de Sanción ----------

@@ -35,7 +35,14 @@ Reglas estrictas:
 - Si no se te dio lista de antecedentes o está vacía, no menciones antecedentes en el análisis.
 - Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con exactamente estas claves: {"resumen_descargo": "...", "tercio_value": "...", "analisis_texto": "..."}`;
 
-const SYSTEM_PROMPT_RESUMEN = `Resume fielmente una parte de un descargo disciplinario de la PNP. Identifica solamente los argumentos, hechos alegados, fechas, documentos y medios probatorios mencionados en esta parte. No evalúes la responsabilidad, no elijas sanción y no inventes información. El resultado se combinará con otras partes antes del análisis jurídico final.`;
+const SYSTEM_PROMPT_RESUMEN = `Resume fielmente una parte de un descargo disciplinario de la PNP. Tu resumen debe servir para insertarse en una Orden de Sanción y explicar QUÉ DEFENSA FORMULA el investigado.
+
+Reglas obligatorias:
+- Ignora por completo los encabezados y datos de trámite: destinatario, administrado, sumilla, referencia, número de documento, fecha de presentación, firmas, cargos, anexos de portada y la sola frase "interpongo descargo". Esos datos NO son argumentos de defensa.
+- Identifica los argumentos sustantivos: qué versión de los hechos sostiene, qué niega o reconoce, qué circunstancia justifica o atenúa, qué solicita y qué documentos o medios probatorios invoca.
+- Redacta un párrafo formal, en tercera persona, de aproximadamente 120 a 300 palabras cuando el texto contenga argumentos suficientes. Ordena las ideas por puntos, sin copiar literalmente el escrito ni evaluarlo.
+- No evalúes responsabilidad, no elijas sanción y no inventes información.
+- Si esta parte solo contiene encabezados, identificación o contenido ilegible por OCR, responde exactamente: "Esta parte del archivo solo contiene datos de identificación o texto no legible; no se advierten argumentos de defensa sustantivos." El resultado se combinará con otras partes antes del análisis jurídico final.`;
 
 const SYSTEM_PROMPT_TERCIO = `Evalúa un descargo disciplinario de la PNP conforme a la Ley N° 30714 y devuelve únicamente el value EXACTO de una de las opciones de tercio recibidas. Elige mínimo si hay justificación acreditada y sin antecedentes; medio si no desvirtúa el hecho o solo reconoce sin prueba; máximo si existen antecedentes o agravantes acreditados. Usa solamente los hechos y directivas recibidos, sin inventar información.`;
 
@@ -58,7 +65,7 @@ const HERRAMIENTA_ANALISIS = {
 
 const HERRAMIENTA_RESUMEN = {
   name: "entregar_resumen_descargo",
-  description: "Devuelve el resumen fiel de una parte del descargo.",
+  description: "Devuelve una síntesis sustantiva de los argumentos de defensa, excluyendo encabezados y datos de trámite.",
   input_schema: {
     type: "object",
     properties: { resumen_descargo: { type: "string" } },
@@ -186,13 +193,17 @@ function resumenDeRespaldo(input: Record<string, unknown>): string {
   const texto = String(input.textoDescargo || "").replace(/\s+/g, " ").trim();
   if (!texto) return "";
   const oraciones = texto.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
-  const extracto = oraciones
+  const esEncabezado = (oracion: string) => /\b(administrado|sumilla|referencia|interpone descargo|notificaci[oó]n de presunta infracci[oó]n|señor(?:a)?\s+(?:comandante|coronel|mayor|capit[aá]n|teniente))\b/i.test(oracion)
+    && !/\b(alega|sostiene|manifiesta|señala|argumenta|solicita|pide|niega|reconoce|justifica|porque|adjunta|acredita|prueba)\b/i.test(oracion);
+  const candidatas = oraciones
     .map((oracion) => oracion.trim())
     .filter((oracion) => oracion.length >= 25)
+    .filter((oracion) => !esEncabezado(oracion));
+  const extracto = candidatas
     .slice(0, 3)
     .join(" ")
     .slice(0, 1100);
-  if (!extracto) return "";
+  if (!extracto) return "Esta parte del archivo solo contiene datos de identificación o texto no legible; no se advierten argumentos de defensa sustantivos.";
   return `En su descargo, el investigado expone, en síntesis, los siguientes puntos relevantes: ${extracto}`;
 }
 
