@@ -143,6 +143,30 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// Mantiene el mismo comportamiento visual en cada tarea que tarda: guarda
+// texto y estado originales para restaurarlos incluso cuando el botón empezó
+// deshabilitado por alguna regla del formulario.
+function ocuparBoton(btn, ocupado, texto = "Procesando...") {
+  if (!btn) return;
+  if (ocupado) {
+    if (btn.dataset.ocupado !== "true") {
+      btn.dataset.textoOriginal = btn.textContent;
+      btn.dataset.estabaDeshabilitado = String(btn.disabled);
+    }
+    btn.dataset.ocupado = "true";
+    btn.disabled = true;
+    btn.classList.add("is-busy");
+    btn.textContent = texto;
+    return;
+  }
+  btn.disabled = btn.dataset.estabaDeshabilitado === "true";
+  btn.classList.remove("is-busy");
+  if (btn.dataset.textoOriginal !== undefined) btn.textContent = btn.dataset.textoOriginal;
+  delete btn.dataset.ocupado;
+  delete btn.dataset.textoOriginal;
+  delete btn.dataset.estabaDeshabilitado;
+}
+
 // ---------- Aplicación móvil y alertas privadas ----------
 let avisoInstalacionDiferido = null;
 let registroMovil = null;
@@ -150,7 +174,7 @@ function mostrarEstadoMovil(texto) { const el = $("estadoAlertasMovil"); if (el)
 function claveVapidComoBytes(valor) { const texto = atob(valor.replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(texto, (caracter) => caracter.charCodeAt(0)); }
 async function obtenerRegistroMovil() { if (!("serviceWorker" in navigator)) throw new Error("Este navegador no admite alertas."); if (!registroMovil) registroMovil = await navigator.serviceWorker.register("./sw.js", { scope: "./" }); return registroMovil; }
 async function prepararAlertasMovil() { const boton = $("btnActivarAlertas"); if (!state.session || !boton) return; if (!state.cip) { boton.disabled = true; mostrarEstadoMovil("Ingrese con su CIP para recibir solamente sus alertas personales."); return; } try { const registro = await obtenerRegistroMovil(); if (!("PushManager" in window) || !("Notification" in window)) { boton.disabled = true; mostrarEstadoMovil("Este navegador no permite alertas. Use Chrome en Android."); return; } if (Notification.permission === "denied") { boton.disabled = true; mostrarEstadoMovil("Las alertas están bloqueadas en este celular. Habilítelas desde los ajustes del navegador."); return; } const suscripcion = await registro.pushManager.getSubscription(); if (suscripcion && Notification.permission === "granted") { boton.disabled = true; mostrarEstadoMovil("✓ Alertas activas para su CIP en este celular."); } else { boton.disabled = false; mostrarEstadoMovil("Instale la aplicación y active alertas para recibir avisos internos de sanciones pendientes."); } } catch (error) { console.error(error); mostrarEstadoMovil("No se pudo preparar las alertas en este dispositivo."); } }
-async function activarAlertasMovil() { const boton = $("btnActivarAlertas"); if (!state.cip || !state.session) { mostrarEstadoMovil("Ingrese con su CIP para activar alertas personales."); return; } boton.disabled = true; try { const permiso = await Notification.requestPermission(); if (permiso !== "granted") { mostrarEstadoMovil("No se activaron alertas. Debe permitirlas en el navegador."); return; } const registro = await obtenerRegistroMovil(); const suscripcion = await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: claveVapidComoBytes(VAPID_PUBLIC_KEY) }); const datos = suscripcion.toJSON(); const { error } = await supabase.from("suscripciones_movil").upsert({ user_id: state.session.user.id, cip: state.cip, endpoint: datos.endpoint, p256dh: datos.keys?.p256dh, auth: datos.keys?.auth, updated_at: new Date().toISOString() }, { onConflict: "endpoint" }); if (error) throw error; mostrarEstadoMovil("✓ Alertas activas para su CIP en este celular."); } catch (error) { console.error(error); mostrarEstadoMovil("No se pudieron activar las alertas. Intente nuevamente en unos minutos."); } finally { boton.disabled = false; } }
+async function activarAlertasMovil() { const boton = $("btnActivarAlertas"); if (!state.cip || !state.session) { mostrarEstadoMovil("Ingrese con su CIP para activar alertas personales."); return; } ocuparBoton(boton, true, "Activando..."); try { const permiso = await Notification.requestPermission(); if (permiso !== "granted") { mostrarEstadoMovil("No se activaron alertas. Debe permitirlas en el navegador."); return; } const registro = await obtenerRegistroMovil(); const suscripcion = await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: claveVapidComoBytes(VAPID_PUBLIC_KEY) }); const datos = suscripcion.toJSON(); const { error } = await supabase.from("suscripciones_movil").upsert({ user_id: state.session.user.id, cip: state.cip, endpoint: datos.endpoint, p256dh: datos.keys?.p256dh, auth: datos.keys?.auth, updated_at: new Date().toISOString() }, { onConflict: "endpoint" }); if (error) throw error; mostrarEstadoMovil("✓ Alertas activas para su CIP en este celular."); } catch (error) { console.error(error); mostrarEstadoMovil("No se pudieron activar las alertas. Intente nuevamente en unos minutos."); } finally { ocuparBoton(boton, false); } }
 window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault(); avisoInstalacionDiferido = event; $("btnInstalarApp")?.classList.remove("hidden"); });
 $("btnInstalarApp")?.addEventListener("click", async () => { if (!avisoInstalacionDiferido) return; avisoInstalacionDiferido.prompt(); await avisoInstalacionDiferido.userChoice; avisoInstalacionDiferido = null; $("btnInstalarApp")?.classList.add("hidden"); });
 $("btnActivarAlertas")?.addEventListener("click", activarAlertasMovil);
@@ -653,7 +677,7 @@ $("btnRedactarHechoIA").addEventListener("click", async () => {
   const notasPrevias = $("fDescripcionHecho").value.trim();
   if (!file && !notasPrevias) return;
   const btn = $("btnRedactarHechoIA");
-  btn.disabled = true;
+  ocuparBoton(btn, true, "Redactando...");
   statusEl.classList.remove("hidden");
   try {
     let texto = "";
@@ -695,6 +719,7 @@ $("btnRedactarHechoIA").addEventListener("click", async () => {
     console.error(err);
     statusEl.textContent = "No se pudo redactar con IA: " + (err.message || err);
   } finally {
+    ocuparBoton(btn, false);
     actualizarBotonRedactarIA();
   }
 });
@@ -708,7 +733,7 @@ $("btnSugerirCodigoIA").addEventListener("click", async () => {
     return;
   }
   const btn = $("btnSugerirCodigoIA");
-  btn.disabled = true;
+  ocuparBoton(btn, true, "Consultando...");
   sugEl.classList.remove("hidden");
   sugEl.textContent = "Consultando el Anexo I con IA...";
   try {
@@ -730,7 +755,7 @@ $("btnSugerirCodigoIA").addEventListener("click", async () => {
     console.error(err);
     sugEl.textContent = "No se pudo consultar la IA: " + (err.message || err);
   } finally {
-    btn.disabled = false;
+    ocuparBoton(btn, false);
   }
 });
 
@@ -798,10 +823,16 @@ $("loginForm").addEventListener("submit", async (e) => {
   let email = $("loginEmail").value.trim();
   if (/^\d+$/.test(email)) email = `${email}@imputacionpnp.local`;
   const password = $("loginPassword").value;
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    $("loginError").textContent = "Correo o clave incorrectos.";
-    $("loginError").classList.remove("hidden");
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  ocuparBoton(submitBtn, true, "Ingresando...");
+  try {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      $("loginError").textContent = "Correo o clave incorrectos.";
+      $("loginError").classList.remove("hidden");
+    }
+  } finally {
+    ocuparBoton(submitBtn, false);
   }
 });
 
@@ -828,19 +859,15 @@ $("registroForm").addEventListener("submit", async (e) => {
   const email = $("regEmail").value.trim();
   const password = $("regPassword").value;
   const submitBtn = e.target.querySelector("button[type=submit]");
-  submitBtn.disabled = true;
+  ocuparBoton(submitBtn, true, "Creando cuenta...");
   try {
     const { error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      errEl.textContent = error.message;
-      errEl.classList.remove("hidden");
-      return;
-    }
+    if (error) { errEl.textContent = error.message; errEl.classList.remove("hidden"); return; }
     okEl.textContent = "Cuenta creada. Ya puede ingresar (si su proyecto exige confirmar el correo, revise su bandeja).";
     okEl.classList.remove("hidden");
     $("registroForm").reset();
   } finally {
-    submitBtn.disabled = false;
+    ocuparBoton(submitBtn, false);
   }
 });
 
@@ -1023,9 +1050,7 @@ async function cargarEstadoRespaldoDrive() {
 async function conectarGoogleDrive() {
   const boton = $("btnConectarDrive");
   if (!boton) return;
-  boton.disabled = true;
-  const textoOriginal = boton.textContent;
-  boton.textContent = "Preparando conexión...";
+  ocuparBoton(boton, true, "Preparando conexión...");
   try {
     const { data, error } = await supabase.functions.invoke("google-drive-conectar", { body: {} });
     if (error) throw error;
@@ -1033,8 +1058,7 @@ async function conectarGoogleDrive() {
     window.location.assign(data.authorizationUrl);
   } catch (error) {
     alert("No se pudo iniciar la conexión con Drive: " + (error.message || error));
-    boton.disabled = false;
-    boton.textContent = textoOriginal;
+    ocuparBoton(boton, false);
   }
 }
 
@@ -1103,9 +1127,9 @@ async function renderExpedientesRemitidos() {
   document.querySelectorAll(".btn-respaldar-drive").forEach((btn) => btn.addEventListener("click", async () => {
     const registro = state.expedientesRemitidos.find((item) => item.id === btn.dataset.id);
     if (!registro) return;
-    btn.disabled = true; btn.textContent = "Respaldando...";
+    ocuparBoton(btn, true, "Respaldando...");
     try { await respaldarExpedienteCompletoEnDrive(registro); }
-    finally { btn.disabled = false; btn.textContent = "☁ Respaldar en Drive"; }
+    finally { ocuparBoton(btn, false); }
   }));
   prepararFormularioRegistroRecepcion();
 }
@@ -1164,7 +1188,7 @@ async function submitRegistroRecepcion(e) {
   if (!caso || !archivo) { errorEl.textContent = "Seleccione un expediente cerrado y adjunte el PDF firmado."; errorEl.classList.remove("hidden"); return; }
   if (archivo.type !== "application/pdf" && !/\.pdf$/i.test(archivo.name)) { errorEl.textContent = "El expediente completo debe subirse como un único archivo PDF."; errorEl.classList.remove("hidden"); return; }
   const boton = e.target.querySelector("button[type=submit]");
-  boton.disabled = true; boton.textContent = "Verificando...";
+  ocuparBoton(boton, true, "Verificando...");
   try {
     const componentes = await componentesExpedienteCompleto(caso);
     const faltantes = componentes.filter((item) => !item.listo).map((item) => item.etiqueta);
@@ -1190,7 +1214,7 @@ async function submitRegistroRecepcion(e) {
   } catch (error) {
     errorEl.textContent = "No se pudo registrar el expediente: " + (error.message || error);
     errorEl.classList.remove("hidden");
-  } finally { boton.disabled = false; boton.textContent = "Registrar expediente"; }
+  } finally { ocuparBoton(boton, false); }
 }
 
 async function submitDocumentosCierre(e) {
@@ -1202,7 +1226,7 @@ async function submitDocumentosCierre(e) {
   const oficio = form.querySelector(".f-oficio-cierre").files[0];
   if (!registro || (!ht && !oficio)) { alert("Adjunte por lo menos el HT o el Oficio."); return; }
   const boton = form.querySelector("button[type=submit]");
-  boton.disabled = true; boton.textContent = "Guardando...";
+  ocuparBoton(boton, true, "Guardando...");
   try {
     const cambios = {};
     const tiposSubidos = [];
@@ -1221,7 +1245,7 @@ async function submitDocumentosCierre(e) {
     await loadExpedientesRemitidos();
   } catch (error) {
     alert("No se pudieron guardar los documentos: " + (error.message || error));
-  } finally { boton.disabled = false; boton.textContent = "Guardar documentos"; }
+  } finally { ocuparBoton(boton, false); }
 }
 
 $("buscarRecepcion")?.addEventListener("input", renderExpedientesRemitidos);
@@ -1373,7 +1397,7 @@ async function generarResumenEjecutivo() {
   contenidoEl.textContent = "";
   statusEl.textContent = "Generando resumen ejecutivo con IA...";
   statusEl.classList.remove("hidden");
-  btn.disabled = true;
+  ocuparBoton(btn, true, "Generando...");
   try {
     const casos = construirResumenEstadoCasos();
     const { data, error } = await supabase.functions.invoke("generar-resumen-casos", {
@@ -1387,7 +1411,7 @@ async function generarResumenEjecutivo() {
     console.error(err);
     statusEl.textContent = "No se pudo generar el resumen: " + (err.message || err);
   } finally {
-    btn.disabled = false;
+    ocuparBoton(btn, false);
   }
 }
 
@@ -1428,7 +1452,7 @@ $("asistenteForm").addEventListener("submit", async (e) => {
   agregarMensajeAsistente("oficial", pregunta);
   input.value = "";
   const submitBtn = e.target.querySelector("button[type=submit]");
-  submitBtn.disabled = true;
+  ocuparBoton(submitBtn, true, "Consultando...");
   try {
     const directivas = directivasParaIA(state.directivas.length ? state.directivas : await listarDirectivas(supabase));
     const { data, error } = await supabase.functions.invoke("asistente-normativa", {
@@ -1446,7 +1470,7 @@ $("asistenteForm").addEventListener("submit", async (e) => {
     console.error(err);
     agregarMensajeAsistente("asistente", "Ocurrió un error al consultar: " + (err.message || err));
   } finally {
-    submitBtn.disabled = false;
+    ocuparBoton(submitBtn, false);
   }
 });
 
@@ -2401,15 +2425,19 @@ $("efectivoForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const errEl = $("efectivoFormError");
   errEl.classList.add("hidden");
-  const { error } = await supabase.from("efectivos").insert({
-    grado: $("efGrado").value.trim(),
-    cip: $("efCip").value.trim(),
-    dni: $("efDni").value.trim(),
-    apellidos_nombres: $("efApellidosNombres").value.trim(),
-  });
-  if (error) { errEl.textContent = "Error: " + error.message; errEl.classList.remove("hidden"); return; }
-  $("modalNuevoEfectivo").classList.add("hidden");
-  loadEfectivos();
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  ocuparBoton(submitBtn, true, "Guardando...");
+  try {
+    const { error } = await supabase.from("efectivos").insert({
+      grado: $("efGrado").value.trim(), cip: $("efCip").value.trim(),
+      dni: $("efDni").value.trim(), apellidos_nombres: $("efApellidosNombres").value.trim(),
+    });
+    if (error) { errEl.textContent = "Error: " + error.message; errEl.classList.remove("hidden"); return; }
+    $("modalNuevoEfectivo").classList.add("hidden");
+    await loadEfectivos();
+  } finally {
+    ocuparBoton(submitBtn, false);
+  }
 });
 
 // ---------- Nuevo caso modal ----------
@@ -2503,7 +2531,10 @@ $("casoForm").addEventListener("submit", async (e) => {
     investigado_cip: buscarInvestigado($("fApellidos").value.trim(), $("fNombres").value.trim(), state.efectivos)?.cip || null,
   };
 
-  const { data: inserted, error } = await supabase.from("casos").insert(payload).select().single();
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  ocuparBoton(submitBtn, true, "Guardando...");
+  try {
+    const { data: inserted, error } = await supabase.from("casos").insert(payload).select().single();
   if (error) { errEl.textContent = "Error: " + error.message; errEl.classList.remove("hidden"); return; }
 
   const file = $("fArchivoSustento").files[0];
@@ -2517,8 +2548,11 @@ $("casoForm").addEventListener("submit", async (e) => {
     }
   }
 
-  closeModal();
-  loadCasos();
+    closeModal();
+    await loadCasos();
+  } finally {
+    ocuparBoton(submitBtn, false);
+  }
 });
 
 // ---------- Historial de actividad ----------
@@ -2663,7 +2697,7 @@ $("directivaForm")?.addEventListener("submit", async (e) => {
   if (!titulo || !contenido) return;
 
   const submitBtn = e.target.querySelector("button[type=submit]");
-  submitBtn.disabled = true;
+  ocuparBoton(submitBtn, true, "Guardando...");
   try {
     const savedId = await guardarDirectiva(supabase, { id, titulo, numero_documento, contenido, activa, userId: state.session.user.id });
     const file = $("dvArchivo").files[0];
@@ -2678,7 +2712,7 @@ $("directivaForm")?.addEventListener("submit", async (e) => {
     errEl.textContent = "Error: " + (err.message || err);
     errEl.classList.remove("hidden");
   } finally {
-    submitBtn.disabled = false;
+    ocuparBoton(submitBtn, false);
   }
 });
 
