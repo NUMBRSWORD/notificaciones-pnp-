@@ -879,14 +879,26 @@ function renderResumenRapido() {
 }
 
 function obtenerAccionesPrioritarias() {
+function diasHastaFecha(fecha) {
+  if (!fecha) return null;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const destino = new Date(`${fecha}T12:00:00`);
+  destino.setHours(0, 0, 0, 0);
+  return Math.round((destino - hoy) / 86400000);
+}
+
   return (state.casos || []).flatMap((caso) => {
     const nombre = nombreInvestigadoVisible(caso, true) || "Caso sin nombre";
-    if (state.cip && caso.investigado_cip === state.cip && caso.sancion_generada_at && !caso.orden_notificada_at) return [{ caso, nombre, prioridad: 0, tipo: "Sanción pendiente", detalle: "Tiene una sanción pendiente de revisión. Este aviso es informativo y no reemplaza la notificación formal.", clase: "is-urgent" }];
+    if (caso.sancion_generada_at && !caso.orden_notificada_at) return [{ caso, nombre, prioridad: 0, tipo: "Registrar cargo de Orden", detalle: "La Orden fue generada; corresponde notificarla y subir el cargo firmado.", clase: "is-urgent" }];
     if (caso.imputacion_generada_at && !caso.fecha_descargo && !caso.sancion_generada_at && plazoDescargoVencido(caso)) {
       return [{ caso, nombre, prioridad: 1, tipo: "Plazo vencido", detalle: "Defina el siguiente trámite: acta de no descargo u orden de sanción.", clase: "is-urgent" }];
     }
+    if (caso.imputacion_generada_at && !caso.fecha_descargo && !caso.sancion_generada_at && diasHastaFecha(fechaLimiteDescargo(caso)) === 1) {
+      return [{ caso, nombre, prioridad: 1.5, tipo: "Plazo vence mañana", detalle: "Verifique la recepción del descargo o prepare el trámite que corresponde.", clase: "is-pending" }];
+    }
     if (caso.fecha_descargo && !caso.sancion_generada_at) {
-      return [{ caso, nombre, prioridad: 2, tipo: "Descargo recibido", detalle: "Revise el descargo y prepare la orden de sanción.", clase: "is-ready" }];
+      return [{ caso, nombre, prioridad: 2, tipo: "Preparar Orden de Sanción", detalle: "El descargo ya fue registrado. Complete el análisis y genere la Orden.", clase: "is-ready" }];
     }
     if (!caso.imputacion_generada_at) {
       return [{ caso, nombre, prioridad: 3, tipo: "Generar imputación", detalle: "Complete o verifique los datos para notificar la imputación.", clase: "is-pending" }];
@@ -1672,7 +1684,7 @@ async function renderCasoDetail(caso) {
             <label>Fecha de descargo<input type="date" id="dFecha" required /></label>
             <label>N.º de documento<input type="text" id="dNumero" /></label>
           </div>
-          <label>Archivo del descargo<input type="file" id="dArchivo" /></label>
+          <label>Archivo del descargo (PDF o foto)<input type="file" id="dArchivo" accept="application/pdf,image/*" capture="environment" /></label>
           <p id="descargoError" class="error hidden"></p>
           <button type="submit" class="btn-secondary">Registrar descargo recibido</button>
         </form>` : ""}
@@ -1721,7 +1733,7 @@ async function renderCasoDetail(caso) {
         <p class="muted small">Suba el cargo de notificación firmado por el investigado (la IA verifica que corresponda antes de guardar).</p>
         <form id="ordenNotifForm">
           <label>Cargo de notificación firmado (PDF o foto)
-            <input type="file" id="fOrdenNotifArchivo" accept="application/pdf,image/*" required />
+            <input type="file" id="fOrdenNotifArchivo" accept="application/pdf,image/*" capture="environment" required />
           </label>
           <div class="modal-actions" style="justify-content:flex-start; margin:8px 0">
             <button type="button" class="btn-secondary" id="btnVerificarNotifIA">✨ Verificar con IA</button>
@@ -2165,9 +2177,9 @@ async function submitSancion(e, caso) {
       sancion_tercio_label: tercioValue,
       sancion_analisis_texto: analisisTexto,
       sancion_descargo_texto: descargoTexto,
-    }).eq("id", caso.id).select("id, investigado_cip").single();
+    }).eq("id", caso.id).select("id, oficial_constato_cip").single();
     if (error) { errEl.textContent = "Se generó el documento, pero no se pudo guardar la decisión: " + error.message; errEl.classList.remove("hidden"); return; }
-    if (actualizado?.investigado_cip) void enviarAlertaSancionPendiente(actualizado.id);
+    if (actualizado?.oficial_constato_cip) void enviarAlertaSancionPendiente(actualizado.id);
     eliminarBorradorSancion(caso.id);
     openCasoDetail(caso.id);
   } catch (err) {

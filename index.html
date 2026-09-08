@@ -123,8 +123,8 @@
       <div class="mobile-app-icon" aria-hidden="true">📲</div>
       <div class="mobile-app-copy">
         <span class="eyebrow">Aplicación móvil</span>
-        <h3 id="panelMovilTitulo">Alertas de sanciones pendientes</h3>
-        <p id="estadoAlertasMovil" class="muted small">Instale la aplicación y active las alertas en este celular.</p>
+        <h3 id="panelMovilTitulo">Alertas de tareas de investigación</h3>
+        <p id="estadoAlertasMovil" class="muted small">Instale la aplicación y active alertas de sus expedientes asignados.</p>
       </div>
       <div class="mobile-app-actions">
         <button id="btnInstalarApp" type="button" class="btn-secondary hidden">Instalar app</button>
@@ -432,7 +432,7 @@
         <span class="form-help">Seleccione un cargo frecuente o escriba el cargo que corresponda. Se insertará en el sello.</span>
       </label>
       <label>Archivo de sustento (opcional: foto, PDF, parte, etc.)
-        <input type="file" id="fArchivoSustento" accept="application/pdf,image/*" />
+        <input type="file" id="fArchivoSustento" accept="application/pdf,image/*" capture="environment" />
       </label>
 
       <p id="casoFormError" class="error hidden"></p>

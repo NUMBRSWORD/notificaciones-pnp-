@@ -1,0 +1,1 @@
+drop policy if exists "ve casos propios, investigado o es admin" on public.casos; drop policy if exists "ve casos propios o es admin" on public.casos; create policy "ve casos propios o es admin" on public.casos for select to authenticated using (public.es_admin() or oficial_constato_cip = public.cip_actual());
