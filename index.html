@@ -217,14 +217,15 @@
       <div class="view-actions"><input id="buscarRecepcion" type="search" placeholder="Buscar por nombre, CIP o código..." /><button id="btnRegistrarExpedienteRecibido" type="button" class="btn-primary">+ Registrar expediente recibido</button></div>
     </div>
     <section id="registroRecepcionPanel" class="detail-card hidden">
-      <div class="detail-card-header"><div><span class="eyebrow">Registro administrativo</span><h3>Ingresar expediente firmado</h3></div><button id="btnCancelarRegistroRecepcion" type="button" class="btn-ghost">Cerrar</button></div>
-      <p class="muted small">Elija un expediente ya cerrado. Su nombre, fecha del hecho, CIP e infracción se registran automáticamente.</p>
+      <div class="detail-card-header"><div><span class="eyebrow">Registro administrativo</span><h3>Recibir expediente completo firmado</h3></div><button id="btnCancelarRegistroRecepcion" type="button" class="btn-ghost">Cerrar</button></div>
+      <p class="muted small">El PDF final debe contener los documentos firmados: Imputación y su constancia de notificación, Descargo o Acta de No Descargo, Orden de Sanción y su cargo firmado. Los registros digitales se enlazan automáticamente.</p>
       <form id="registroRecepcionForm">
         <label>Expediente cerrado
           <select id="fCasoRecibido" required></select>
         </label>
-        <label>Expediente final firmado (PDF o fotos)
-          <input type="file" id="fArchivoExpedienteRecibido" accept="application/pdf,image/*" capture="environment" required />
+        <div id="checklistExpedienteRecibido" class="detail-grid"><p class="muted small">Seleccione un expediente para revisar sus documentos firmados.</p></div>
+        <label>Expediente completo firmado (un solo PDF)
+          <input type="file" id="fArchivoExpedienteRecibido" accept="application/pdf" required />
         </label>
         <label>Observación de recepción (opcional)
           <textarea id="fObservacionExpedienteRecibido" rows="2" placeholder="Ej.: recibido físicamente y digitalizado."></textarea>

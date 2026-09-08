@@ -1048,6 +1048,26 @@ async function actualizarEstadoRecepcion(id, estado, observacion = null) {
   loadExpedientesRemitidos();
 }
 
+async function componentesExpedienteCompleto(caso) {
+  const { data: docs, error } = await supabase.from("documentos_generados").select("tipo").eq("caso_id", caso.id);
+  if (error) throw error;
+  const tiene = (tipo) => (docs || []).some((doc) => doc.tipo === tipo);
+  return [
+    { etiqueta: "Inicio de Imputación", listo: tiene("imputacion") },
+    { etiqueta: "Notificación y entrega de Imputación", listo: !!caso.imputacion_generada_at },
+    caso.fecha_descargo ? { etiqueta: "Descargo del investigado adjunto", listo: !!caso.archivo_descargo_path } : { etiqueta: "Acta de No Descargo", listo: tiene("acta_no_descargo") },
+    { etiqueta: "Orden de Sanción", listo: tiene("orden_sancion") },
+    { etiqueta: "Cargo firmado de la Orden", listo: !!caso.orden_notificada_at && !!caso.archivo_orden_notificacion_path },
+  ];
+}
+
+async function actualizarChecklistExpedienteCompleto() {
+  const contenedor = $("checklistExpedienteRecibido"); const caso = state.casos.find((item) => item.id === $("fCasoRecibido").value);
+  if (!contenedor) return;
+  if (!caso) { contenedor.innerHTML = '<p class="muted small">Seleccione un expediente para revisar sus documentos firmados.</p>'; return; }
+  try { const componentes = await componentesExpedienteCompleto(caso); contenedor.innerHTML = componentes.map((item) => `<div class="detail-field"><div class="label">${item.listo ? "✓" : "⚠"} ${escapeHtml(item.etiqueta)}</div><div class="value">${item.listo ? "Registrado digitalmente" : "Falta registrar o adjuntar"}</div></div>`).join(""); }
+  catch (error) { contenedor.innerHTML = '<p class="error">No se pudo revisar los documentos del expediente.</p>'; console.error(error); }
+}
 function prepararFormularioRegistroRecepcion() {
   const panel = $("registroRecepcionPanel");
   const select = $("fCasoRecibido");
@@ -1057,7 +1077,8 @@ function prepararFormularioRegistroRecepcion() {
     caso.sancion_generada_at && caso.orden_notificada_at && !registrados.has(caso.id)
   );
   select.innerHTML = `<option value="">Seleccione un expediente cerrado...</option>${disponibles.map((caso) => `<option value="${escapeHtml(caso.id)}">${escapeHtml(`${nombreInvestigadoVisible(caso, true)} · Falta ${formatDate(caso.fecha_hecho)} · ${caso.codigo_infraccion}`)}</option>`).join("")}`;
-  $("btnRegistrarExpedienteRecibido").onclick = () => panel.classList.remove("hidden");
+  select.onchange = actualizarChecklistExpedienteCompleto;
+  $("btnRegistrarExpedienteRecibido").onclick = () => { panel.classList.remove("hidden"); actualizarChecklistExpedienteCompleto(); };
   $("btnCancelarRegistroRecepcion").onclick = () => panel.classList.add("hidden");
   $("registroRecepcionForm").onsubmit = submitRegistroRecepcion;
 }
@@ -1069,9 +1090,14 @@ async function submitRegistroRecepcion(e) {
   const caso = state.casos.find((item) => item.id === $("fCasoRecibido").value);
   const archivo = $("fArchivoExpedienteRecibido").files[0];
   if (!caso || !archivo) { errorEl.textContent = "Seleccione un expediente cerrado y adjunte el PDF firmado."; errorEl.classList.remove("hidden"); return; }
+  if (archivo.type !== "application/pdf" && !/\.pdf$/i.test(archivo.name)) { errorEl.textContent = "El expediente completo debe subirse como un único archivo PDF."; errorEl.classList.remove("hidden"); return; }
   const boton = e.target.querySelector("button[type=submit]");
-  boton.disabled = true; boton.textContent = "Registrando...";
+  boton.disabled = true; boton.textContent = "Verificando...";
   try {
+    const componentes = await componentesExpedienteCompleto(caso);
+    const faltantes = componentes.filter((item) => !item.listo).map((item) => item.etiqueta);
+    if (faltantes.length) { errorEl.textContent = `No se puede recibir el expediente: faltan registros de ${faltantes.join(", ")}.`; errorEl.classList.remove("hidden"); return; }
+    boton.textContent = "Registrando...";
     const ruta = datosRutaExpedienteCerrado(caso, archivo.name);
     const { error: uploadError } = await supabase.storage.from("expedientes-terminados-pnp").upload(ruta.ruta, archivo, { upsert: false });
     if (uploadError) throw uploadError;
