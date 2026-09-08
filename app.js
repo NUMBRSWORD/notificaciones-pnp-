@@ -1048,23 +1048,6 @@ async function respaldarArchivoEnDrive(expedienteId, tipo, silencioso = false) {
   return { ok: true, data };
 }
 
-async function probarRespaldoDrive() {
-  const boton = $("btnProbarRespaldoDrive");
-  if (!boton) return;
-  boton.disabled = true;
-  boton.textContent = "Probando...";
-  try {
-    const { data, error } = await supabase.functions.invoke("respaldar-expediente-drive", { body: { modo: "prueba" } });
-    if (error || data?.error) throw new Error(data?.error || error?.message || "No se pudo ejecutar la prueba.");
-    alert("✓ Prueba correcta: Drive recibió el archivo temporal y fue eliminado junto con su carpeta. No se modificó ningún expediente.");
-  } catch (error) {
-    alert("La prueba de Drive no se completó: " + (error.message || error));
-  } finally {
-    boton.disabled = false;
-    boton.textContent = "🧪 Probar Drive";
-  }
-}
-
 async function respaldarExpedienteCompletoEnDrive(expediente, silencioso = false) {
   const tipos = ["expediente", expediente.archivo_ht_path ? "ht" : null, expediente.archivo_oficio_path ? "oficio" : null].filter(Boolean);
   const resultados = [];
@@ -1169,7 +1152,6 @@ function prepararFormularioRegistroRecepcion() {
   $("btnRegistrarExpedienteRecibido").onclick = () => { panel.classList.remove("hidden"); actualizarChecklistExpedienteCompleto(); };
   $("btnCancelarRegistroRecepcion").onclick = () => panel.classList.add("hidden");
   $("btnConectarDrive").onclick = conectarGoogleDrive;
-  $("btnProbarRespaldoDrive").onclick = probarRespaldoDrive;
   $("registroRecepcionForm").onsubmit = submitRegistroRecepcion;
 }
 
