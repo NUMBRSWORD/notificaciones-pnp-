@@ -1,0 +1,1 @@
+{"name":"CPNP Ventanilla — Alertas internas","short_name":"CPNP Ventanilla","description":"Consulta interna de expedientes y alertas de sanciones pendientes.","start_url":"./","scope":"./","display":"standalone","background_color":"#0d1a26","theme_color":"#0d1a26","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

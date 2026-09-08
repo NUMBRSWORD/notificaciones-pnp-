@@ -151,6 +151,12 @@ main { max-width: 1500px; margin: 0 auto; padding: 24px 20px 60px; }
 .quick-summary-stats .is-ready b { color: #69aaf0; }
 .quick-summary-stats .is-pending b { color: #e5ad53; }
 
+.mobile-app-panel { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: var(--radius); background: linear-gradient(105deg, color-mix(in srgb, var(--accent) 16%, var(--bg-card)), var(--bg-card) 58%); }
+.mobile-app-icon { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 22%, var(--bg-elev)); font-size: 1.35rem; }
+.mobile-app-copy { min-width: 0; flex: 1; }
+.mobile-app-copy h3 { margin: 3px 0 4px; font-size: 1rem; }
+.mobile-app-copy p { margin: 0; }
+.mobile-app-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* Agrupa acciones secundarias para priorizar el trabajo diario. */
 .actions-more { position: relative; }
 .actions-more > summary { list-style: none; user-select: none; white-space: nowrap; }
@@ -500,6 +506,9 @@ tbody tr:last-child td { border-bottom: none; }
   .case-person span { max-width: 160px; }
   .action-item { align-items: flex-start; flex-direction: column; }
   .action-item .btn-secondary { width: 100%; }
+  .mobile-app-panel { align-items: flex-start; flex-wrap: wrap; padding: 14px; }
+  .mobile-app-actions { width: 100%; }
+  .mobile-app-actions .btn-primary, .mobile-app-actions .btn-secondary { flex: 1; min-height: 44px; }
   .agenda-item { grid-template-columns: 30px minmax(0, 1fr); align-items: flex-start; }
   .agenda-item .btn-primary { grid-column: 1 / -1; width: 100%; }
   .document-item { align-items: flex-start; flex-direction: column; }

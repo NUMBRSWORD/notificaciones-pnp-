@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CPNP Ventanilla — Uso interno</title>
 <link rel="stylesheet" href="styles.css" />
+<meta name="theme-color" content="#0d1a26" />
+<meta name="application-name" content="CPNP Ventanilla" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
 <script>
   (function () {
     var t = localStorage.getItem("tema");
@@ -114,6 +119,18 @@
       </div>
     </div>
     <div id="casosResumenRapido" class="quick-summary" aria-live="polite"></div>
+    <section id="panelMovil" class="mobile-app-panel" aria-labelledby="panelMovilTitulo">
+      <div class="mobile-app-icon" aria-hidden="true">📲</div>
+      <div class="mobile-app-copy">
+        <span class="eyebrow">Aplicación móvil</span>
+        <h3 id="panelMovilTitulo">Alertas de sanciones pendientes</h3>
+        <p id="estadoAlertasMovil" class="muted small">Instale la aplicación y active las alertas en este celular.</p>
+      </div>
+      <div class="mobile-app-actions">
+        <button id="btnInstalarApp" type="button" class="btn-secondary hidden">Instalar app</button>
+        <button id="btnActivarAlertas" type="button" class="btn-primary">Activar alertas</button>
+      </div>
+    </section>
     <section id="bandejaAcciones" class="action-tray hidden" aria-labelledby="bandejaAccionesTitulo">
       <div class="action-tray-header">
         <div>

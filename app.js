@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import * as pdfjsLib from "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.mjs";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SCHEMA } from "./config.js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SCHEMA, VAPID_PUBLIC_KEY } from "./config.js";
 import { renderizarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato, tokens, construirDatosImputacion } from "./lib/imputacion.js";
 import { renderizarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo, buscarInvestigado, construirDatosActaNoDescargo } from "./lib/actaNoDescargo.js";
 import { renderizarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault, construirDatosOrdenSancion } from "./lib/ordenSancion.js";
@@ -143,6 +143,18 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// ---------- Aplicación móvil y alertas privadas ----------
+let avisoInstalacionDiferido = null;
+let registroMovil = null;
+function mostrarEstadoMovil(texto) { const el = $("estadoAlertasMovil"); if (el) el.textContent = texto; }
+function claveVapidComoBytes(valor) { const texto = atob(valor.replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(texto, (caracter) => caracter.charCodeAt(0)); }
+async function obtenerRegistroMovil() { if (!("serviceWorker" in navigator)) throw new Error("Este navegador no admite alertas."); if (!registroMovil) registroMovil = await navigator.serviceWorker.register("./sw.js", { scope: "./" }); return registroMovil; }
+async function prepararAlertasMovil() { const boton = $("btnActivarAlertas"); if (!state.session || !boton) return; if (!state.cip) { boton.disabled = true; mostrarEstadoMovil("Ingrese con su CIP para recibir solamente sus alertas personales."); return; } try { const registro = await obtenerRegistroMovil(); if (!("PushManager" in window) || !("Notification" in window)) { boton.disabled = true; mostrarEstadoMovil("Este navegador no permite alertas. Use Chrome en Android."); return; } if (Notification.permission === "denied") { boton.disabled = true; mostrarEstadoMovil("Las alertas están bloqueadas en este celular. Habilítelas desde los ajustes del navegador."); return; } const suscripcion = await registro.pushManager.getSubscription(); if (suscripcion && Notification.permission === "granted") { boton.disabled = true; mostrarEstadoMovil("✓ Alertas activas para su CIP en este celular."); } else { boton.disabled = false; mostrarEstadoMovil("Instale la aplicación y active alertas para recibir avisos internos de sanciones pendientes."); } } catch (error) { console.error(error); mostrarEstadoMovil("No se pudo preparar las alertas en este dispositivo."); } }
+async function activarAlertasMovil() { const boton = $("btnActivarAlertas"); if (!state.cip || !state.session) { mostrarEstadoMovil("Ingrese con su CIP para activar alertas personales."); return; } boton.disabled = true; try { const permiso = await Notification.requestPermission(); if (permiso !== "granted") { mostrarEstadoMovil("No se activaron alertas. Debe permitirlas en el navegador."); return; } const registro = await obtenerRegistroMovil(); const suscripcion = await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: claveVapidComoBytes(VAPID_PUBLIC_KEY) }); const datos = suscripcion.toJSON(); const { error } = await supabase.from("suscripciones_movil").upsert({ user_id: state.session.user.id, cip: state.cip, endpoint: datos.endpoint, p256dh: datos.keys?.p256dh, auth: datos.keys?.auth, updated_at: new Date().toISOString() }, { onConflict: "endpoint" }); if (error) throw error; mostrarEstadoMovil("✓ Alertas activas para su CIP en este celular."); } catch (error) { console.error(error); mostrarEstadoMovil("No se pudieron activar las alertas. Intente nuevamente en unos minutos."); } finally { boton.disabled = false; } }
+window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault(); avisoInstalacionDiferido = event; $("btnInstalarApp")?.classList.remove("hidden"); });
+$("btnInstalarApp")?.addEventListener("click", async () => { if (!avisoInstalacionDiferido) return; avisoInstalacionDiferido.prompt(); await avisoInstalacionDiferido.userChoice; avisoInstalacionDiferido = null; $("btnInstalarApp")?.classList.add("hidden"); });
+$("btnActivarAlertas")?.addEventListener("click", activarAlertasMovil);
+async function enviarAlertaSancionPendiente(casoId) { try { const { error } = await supabase.functions.invoke("notificar-sancion-pendiente", { body: { casoId } }); if (error) throw error; } catch (error) { console.error("No se pudo enviar la alerta móvil:", error); } }
 // ---------- Tema claro/oscuro ----------
 function actualizarIconoTema() {
   const claro = document.documentElement.getAttribute("data-theme") === "light";
@@ -756,6 +768,7 @@ async function onAuthed(session) {
   state.session = session;
   $("topbar").classList.remove("hidden");
   await loadProfile(session.user.id, session.user.email);
+  void prepararAlertasMovil();
   showView("view-dashboard");
   await loadEfectivos();
   loadCasos();
@@ -868,6 +881,7 @@ function renderResumenRapido() {
 function obtenerAccionesPrioritarias() {
   return (state.casos || []).flatMap((caso) => {
     const nombre = nombreInvestigadoVisible(caso, true) || "Caso sin nombre";
+    if (state.cip && caso.investigado_cip === state.cip && caso.sancion_generada_at && !caso.orden_notificada_at) return [{ caso, nombre, prioridad: 0, tipo: "Sanción pendiente", detalle: "Tiene una sanción pendiente de revisión. Este aviso es informativo y no reemplaza la notificación formal.", clase: "is-urgent" }];
     if (caso.imputacion_generada_at && !caso.fecha_descargo && !caso.sancion_generada_at && plazoDescargoVencido(caso)) {
       return [{ caso, nombre, prioridad: 1, tipo: "Plazo vencido", detalle: "Defina el siguiente trámite: acta de no descargo u orden de sanción.", clase: "is-urgent" }];
     }
@@ -2146,13 +2160,14 @@ async function submitSancion(e, caso) {
     const nombreArchivo = nombreArchivoDocumento("ORDEN DE SANCION", caso);
     saveAs(blob, nombreArchivo);
     registrarVersionDocumento(caso.id, "orden_sancion", blob, nombreArchivo);
-    const { error } = await supabase.from("casos").update({
+    const { data: actualizado, error } = await supabase.from("casos").update({
       sancion_generada_at: new Date().toISOString(),
       sancion_tercio_label: tercioValue,
       sancion_analisis_texto: analisisTexto,
       sancion_descargo_texto: descargoTexto,
-    }).eq("id", caso.id);
+    }).eq("id", caso.id).select("id, investigado_cip").single();
     if (error) { errEl.textContent = "Se generó el documento, pero no se pudo guardar la decisión: " + error.message; errEl.classList.remove("hidden"); return; }
+    if (actualizado?.investigado_cip) void enviarAlertaSancionPendiente(actualizado.id);
     eliminarBorradorSancion(caso.id);
     openCasoDetail(caso.id);
   } catch (err) {
@@ -2319,6 +2334,7 @@ $("casoForm").addEventListener("submit", async (e) => {
     // Igual que en moral-y-disciplina: la política de RLS usa este CIP para
     // decidir qué casos puede ver cada oficial, no solo el admin.
     oficial_constato_cip: buscarOficialConstato(oficialConstatoTexto, state.efectivos)?.cip || null,
+    investigado_cip: buscarInvestigado($("fApellidos").value.trim(), $("fNombres").value.trim(), state.efectivos)?.cip || null,
   };
 
   const { data: inserted, error } = await supabase.from("casos").insert(payload).select().single();
