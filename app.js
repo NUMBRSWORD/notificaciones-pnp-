@@ -1256,7 +1256,7 @@ function renderCasosTable(list) {
 
 async function handleDescargarImputacion(caso, btnEl) {
   const textoOriginal = btnEl ? btnEl.textContent : null;
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Generando..."; }
+  if (btnEl) { btnEl.disabled = true; btnEl.classList.add("is-busy"); btnEl.textContent = "Generando..."; }
   try {
     const blob = await renderizarImputacionDocx(caso, state.efectivos);
     const nombreArchivo = nombreArchivoDocumento("IMPUTACION LEVE", caso);
@@ -1273,7 +1273,7 @@ async function handleDescargarImputacion(caso, btnEl) {
     console.error(err);
     alert(err.message || "No se pudo generar el documento de imputación.");
   } finally {
-    if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
+    if (btnEl) { btnEl.disabled = false; btnEl.classList.remove("is-busy"); btnEl.textContent = textoOriginal; }
   }
 }
 
@@ -1476,6 +1476,51 @@ function progresoCasoHtml(c) {
     <div class="case-progress-steps">${etiquetas.map((etiqueta, i) => `<span class="${i + 1 <= paso ? "is-done" : ""} ${i + 1 === paso ? "is-current" : ""}">${i + 1}</span>`).join("")}</div>
     <span class="pill ${claseEstadoCaso(c)}">${escapeHtml(estadoDeCaso(c))}</span>
   </div>`;
+}
+
+// Una sola recomendación visible evita que el oficial tenga que interpretar
+// toda la ruta antes de saber qué acción corresponde realizar ahora.
+function siguienteAccionCasoHtml(caso, isAdmin) {
+  const hechoCompleto = Boolean(caso.fecha_hecho && caso.descripcion_hecho && getInfraccion(caso.codigo_infraccion));
+  const imputacion = Boolean(caso.imputacion_generada_at);
+  const plazoVencido = imputacion && !caso.fecha_descargo && plazoDescargoVencido(caso);
+  const puedeEvaluar = imputacion && (Boolean(caso.fecha_descargo) || plazoVencido);
+  const orden = Boolean(caso.sancion_generada_at);
+  const notificacionOrden = Boolean(caso.orden_notificada_at);
+
+  let icono = '→';
+  let titulo = 'Complete los datos del hecho';
+  let detalle = 'Registre fecha, infracción y el hecho constatado para continuar el trámite.';
+  let tono = 'is-pending';
+  if (hechoCompleto && !imputacion) {
+    icono = '⬇'; titulo = 'Genere la Imputación';
+    detalle = 'Revise los datos y descargue la Imputación para iniciar el plazo del descargo.'; tono = 'is-ready';
+  } else if (imputacion && !caso.fecha_descargo && !plazoVencido) {
+    icono = '◷'; titulo = 'Espere o registre el descargo';
+    detalle = `El plazo está vigente hasta el ${formatDate(fechaLimiteDescargo(caso))}. Si se presenta antes, regístrelo aquí.`;
+  } else if (plazoVencido && !caso.acta_no_descargo_generada_at) {
+    icono = '!'; titulo = 'Genere el Acta de No Descargo';
+    detalle = 'El plazo venció sin descargo registrado. Genere el acta antes de continuar.'; tono = 'is-urgent';
+  } else if (puedeEvaluar && !caso.sancion_analisis_texto) {
+    icono = '✦'; titulo = 'Complete la evaluación';
+    detalle = 'Resuma el descargo, realice el análisis y elija el tercio de sanción.'; tono = 'is-ready';
+  } else if (puedeEvaluar && !orden) {
+    icono = '⬇'; titulo = 'Genere la Orden de Sanción';
+    detalle = 'La evaluación está lista. Revise los datos y descargue la orden.'; tono = 'is-ready';
+  } else if (orden && !notificacionOrden) {
+    icono = '✍'; titulo = 'Registre la notificación de la Orden';
+    detalle = 'Suba el cargo firmado y confirme su fecha de notificación.';
+  } else if (orden && notificacionOrden && isAdmin) {
+    icono = '✓'; titulo = 'Registre el expediente cerrado';
+    detalle = 'En Recepción, adjunte el expediente firmado, HT y Oficio para archivarlo y respaldarlo.'; tono = 'is-ready';
+  } else if (orden && notificacionOrden) {
+    icono = '✓'; titulo = 'Trámite concluido';
+    detalle = 'La Orden fue notificada. El cierre administrativo corresponde al administrador.'; tono = 'is-done';
+  }
+  return `<aside class="next-action ${tono}" aria-label="Siguiente acción recomendada">
+    <span class="next-action-icon">${icono}</span>
+    <div><span class="eyebrow">Siguiente paso</span><strong>${titulo}</strong><p>${escapeHtml(detalle)}</p></div>
+  </aside>`;
 }
 
 function cronologiaCasoHtml(caso) {
@@ -1725,6 +1770,7 @@ async function renderCasoDetail(caso) {
           <button type="button" class="btn-secondary" id="btnDescargarImputacion" ${puedeDescargar ? "" : "disabled"}>⬇ Descargar Imputación</button>
         </div>
       </div>
+      ${siguienteAccionCasoHtml(caso, isAdmin)}
       <div class="timeline-card">
         <div class="detail-card-header"><h3>Guía del trámite</h3><span class="muted small">Qué sigue en el expediente</span></div>
         ${cronologiaCasoHtml(caso)}
@@ -1928,7 +1974,7 @@ async function renderCasoDetail(caso) {
 
 async function handleDescargarActaNoDescargo(caso, btnEl) {
   const textoOriginal = btnEl ? btnEl.textContent : null;
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = "Generando..."; }
+  if (btnEl) { btnEl.disabled = true; btnEl.classList.add("is-busy"); btnEl.textContent = "Generando..."; }
   try {
     const blob = await renderizarActaNoDescargoDocx(caso, state.efectivos);
     const nombreArchivo = nombreArchivoDocumento("ACTA NO DESCARGO", caso);
@@ -1943,7 +1989,7 @@ async function handleDescargarActaNoDescargo(caso, btnEl) {
     console.error(err);
     alert(err.message || "No se pudo generar el acta de no descargo.");
   } finally {
-    if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
+    if (btnEl) { btnEl.disabled = false; btnEl.classList.remove("is-busy"); btnEl.textContent = textoOriginal; }
   }
 }
 
@@ -2103,6 +2149,7 @@ async function analizarDescargoConIA(caso) {
   const infraccion = getInfraccion(caso.codigo_infraccion);
 
   btn.disabled = true;
+  btn.classList.add("is-busy");
   statusEl.classList.remove("hidden");
   try {
     let textoDescargo = $("sSancionDescargo").value.trim();
@@ -2181,6 +2228,7 @@ async function analizarDescargoConIA(caso) {
     errEl.classList.remove("hidden");
   } finally {
     btn.disabled = false;
+    btn.classList.remove("is-busy");
   }
 }
 
@@ -2190,6 +2238,7 @@ async function verificarNotificacionOrdenIA(caso) {
   if (!file) { statusEl.textContent = "Seleccione primero el archivo del cargo firmado."; statusEl.classList.remove("hidden"); return; }
   const btn = $("btnVerificarNotifIA");
   btn.disabled = true;
+  btn.classList.add("is-busy");
   statusEl.classList.remove("hidden");
   statusEl.textContent = "Leyendo el archivo...";
   try {
@@ -2225,6 +2274,7 @@ async function verificarNotificacionOrdenIA(caso) {
     statusEl.textContent = "No se pudo verificar con IA: " + (err.message || err);
   } finally {
     btn.disabled = false;
+    btn.classList.remove("is-busy");
   }
 }
 
@@ -2268,6 +2318,7 @@ async function submitSancion(e, caso) {
   const submitBtn = e.target.querySelector("button[type=submit]");
   const textoOriginal = submitBtn.textContent;
   submitBtn.disabled = true;
+  submitBtn.classList.add("is-busy");
   submitBtn.textContent = "Generando...";
   try {
     const blob = await renderizarOrdenSancionDocx(caso, state.efectivos, { tercioValue, analisisTexto, descargoTexto });
@@ -2290,6 +2341,7 @@ async function submitSancion(e, caso) {
     errEl.classList.remove("hidden");
   } finally {
     submitBtn.disabled = false;
+    submitBtn.classList.remove("is-busy");
     submitBtn.textContent = textoOriginal;
   }
 }
