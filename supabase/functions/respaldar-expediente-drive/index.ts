@@ -92,6 +92,28 @@ async function uploadFile(fileId: string | null, name: string, parent: string, b
   return create.json();
 }
 
+async function probarDrive(token: string) {
+  const nombreCarpeta = `PRUEBA AUTOMATICA - ${new Date().toISOString()}`;
+  const crearCarpeta = await driveFetch("https://www.googleapis.com/drive/v3/files?fields=id", token, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: nombreCarpeta, mimeType: "application/vnd.google-apps.folder", parents: [ROOT_FOLDER_ID] }),
+  });
+  const carpeta = await crearCarpeta.json();
+  if (!carpeta.id) throw new Error("No se pudo crear la carpeta temporal de prueba.");
+  let archivoId = "";
+  try {
+    const contenido = new Blob(["Prueba automática de respaldo CPNP Ventanilla. Este archivo se elimina inmediatamente."], { type: "text/plain" });
+    const archivo = await uploadFile(null, "PRUEBA_RESPALDO_SE_ELIMINA.txt", carpeta.id, contenido, token);
+    if (!archivo.id) throw new Error("Drive no confirmó la carga temporal.");
+    archivoId = archivo.id;
+    await driveFetch(`https://www.googleapis.com/drive/v3/files/${archivoId}`, token, { method: "DELETE" });
+  } finally {
+    // La carpeta tiene nombre único; se elimina incluso si la prueba falla.
+    await driveFetch(`https://www.googleapis.com/drive/v3/files/${carpeta.id}`, token, { method: "DELETE" }).catch((error) => console.error("No se pudo borrar la carpeta temporal:", error));
+  }
+  return { archivoId, carpetaEliminada: true };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Método no permitido." }, 405);
@@ -101,10 +123,15 @@ Deno.serve(async (req: Request) => {
   try {
     await requireAdmin(req);
     const body = await req.json();
+    admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    if (body?.modo === "prueba") {
+      const token = await accessToken(admin);
+      const resultado = await probarDrive(token);
+      return json({ ok: true, prueba: true, ...resultado });
+    }
     expedienteId = typeof body.expedienteId === "string" ? body.expedienteId : "";
     const tipo: TipoArchivo = ["expediente", "ht", "oficio"].includes(body.tipo) ? body.tipo : "expediente";
     if (!expedienteId) return json({ error: "Falta identificar el expediente." }, 400);
-    admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { data: expediente, error: expedienteError } = await admin.from("expedientes_remitidos").select("id, fecha_hecho, carpeta_archivo, archivo_path, archivo_nombre, archivo_ht_path, archivo_ht_nombre, archivo_oficio_path, archivo_oficio_nombre, drive_expediente_file_id, drive_ht_file_id, drive_oficio_file_id").eq("id", expedienteId).maybeSingle();
     if (expedienteError || !expediente) return json({ error: "No se encontró el expediente." }, 404);
     const campos = tipo === "expediente"
