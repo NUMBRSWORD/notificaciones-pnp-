@@ -154,7 +154,7 @@ async function activarAlertasMovil() { const boton = $("btnActivarAlertas"); if 
 window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault(); avisoInstalacionDiferido = event; $("btnInstalarApp")?.classList.remove("hidden"); });
 $("btnInstalarApp")?.addEventListener("click", async () => { if (!avisoInstalacionDiferido) return; avisoInstalacionDiferido.prompt(); await avisoInstalacionDiferido.userChoice; avisoInstalacionDiferido = null; $("btnInstalarApp")?.classList.add("hidden"); });
 $("btnActivarAlertas")?.addEventListener("click", activarAlertasMovil);
-async function enviarAlertaSancionPendiente(casoId) { try { const { error } = await supabase.functions.invoke("notificar-sancion-pendiente", { body: { casoId } }); if (error) throw error; } catch (error) { console.error("No se pudo enviar la alerta móvil:", error); } }
+async function enviarAlertaSancionPendiente(casoId) { try { const { error } = await supabase.functions.invoke("rapid-action", { body: { casoId } }); if (error) throw error; } catch (error) { console.error("No se pudo enviar la alerta móvil:", error); } }
 // ---------- Tema claro/oscuro ----------
 function actualizarIconoTema() {
   const claro = document.documentElement.getAttribute("data-theme") === "light";
