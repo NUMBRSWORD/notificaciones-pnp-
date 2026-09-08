@@ -1237,12 +1237,12 @@ function renderCasosTable(list) {
     const tr = document.createElement("tr");
     const puedeDescargar = puedeGenerarImputacion(c, state.efectivos);
     tr.innerHTML = `
-      <td>${escapeHtml(c.grado || "")}</td>
+      <td class="case-grade">${escapeHtml(c.grado || "")}</td>
       <td class="case-person"><strong>${escapeHtml(nombreInvestigadoVisible(c))}</strong><span>${escapeHtml(c.unidad_investigado || "Expediente disciplinario")}</span></td>
-      <td class="column-secondary">${formatDate(c.fecha_hecho)}</td>
-      <td>${escapeHtml(c.codigo_infraccion || "")}</td>
-      <td class="column-secondary">${escapeHtml(c.oficial_constato || "-")}</td>
-      <td>${progresoCasoHtml(c)}</td>
+      <td class="case-date">${formatDate(c.fecha_hecho)}</td>
+      <td class="case-code">${escapeHtml(c.codigo_infraccion || "")}</td>
+      <td class="case-official column-secondary">${escapeHtml(c.oficial_constato || "-")}</td>
+      <td class="case-progress-cell">${progresoCasoHtml(c)}</td>
       <td class="row-actions">${puedeDescargar ? `<button type="button" class="btn-secondary btn-descargar-imputacion" title="Descargar Inicio de Imputación de Infracción Leve">⬇ Imputación</button>` : ""} <span class="row-chevron">›</span></td>
     `;
     tr.addEventListener("click", () => openCasoDetail(c.id));

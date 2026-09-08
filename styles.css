@@ -604,3 +604,32 @@ tbody tr:last-child td { border-bottom: none; }
   .asistente-widget { right: 10px; bottom: calc(70px + env(safe-area-inset-bottom)); width: calc(100vw - 20px); height: min(560px, calc(100dvh - 94px)); border-radius: 16px; }
   .asistente-fab { right: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); width: 52px; height: 52px; }
 }
+
+/* En el dashboard, las filas pasan a ser tarjetas: no se aplica a las tablas
+   administrativas de Efectivos, Historial ni Documentos. */
+@media (max-width: 640px) {
+  #view-dashboard .table-wrap { margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; }
+  #view-dashboard .table-wrap table, #view-dashboard .table-wrap tbody { display: block; width: 100%; }
+  #view-dashboard .table-wrap thead { display: none; }
+  #view-dashboard .table-wrap tbody { display: grid; gap: 10px; }
+  #view-dashboard .table-wrap tbody tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px;
+    padding: 14px; border: 1px solid var(--border); border-radius: 14px;
+    background: var(--bg-card); box-shadow: 0 3px 10px rgba(var(--shadow-color), 0.12);
+  }
+  #view-dashboard .table-wrap tbody td { display: block; min-width: 0; padding: 0; border: 0; }
+  #view-dashboard .case-person { grid-column: 1 / -1; order: 1; }
+  #view-dashboard .case-person strong { font-size: 1rem; }
+  #view-dashboard .case-person span { max-width: 100%; font-size: 0.79rem; white-space: normal; }
+  #view-dashboard .case-grade { order: 2; width: fit-content; padding: 4px 8px !important; border-radius: 999px !important; background: var(--accent-soft); color: var(--accent); font-size: 0.73rem; font-weight: 700; }
+  #view-dashboard .case-date { order: 3; justify-self: end; color: var(--text-muted); font-size: 0.78rem; text-align: right; }
+  #view-dashboard .case-date::before { content: "Falta: "; font-weight: 600; }
+  #view-dashboard .case-code { order: 4; grid-column: 1 / -1; color: var(--text); font-size: 0.86rem; font-weight: 700; }
+  #view-dashboard .case-code::before { content: "Infracción: "; color: var(--text-muted); font-weight: 500; }
+  #view-dashboard .case-official { display: none; }
+  #view-dashboard .case-progress-cell { order: 5; grid-column: 1 / -1; padding-top: 9px; border-top: 1px solid var(--border); }
+  #view-dashboard .case-progress { min-width: 0; width: 100%; }
+  #view-dashboard .row-actions { order: 6; grid-column: 1 / -1; justify-content: stretch; padding-top: 3px; }
+  #view-dashboard .row-actions .btn-secondary { flex: 1; min-height: 46px; }
+  #view-dashboard .row-chevron { display: none; }
+}
