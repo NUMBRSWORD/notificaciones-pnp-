@@ -109,8 +109,19 @@
       </div>
     </div>
     <div id="casosResumenRapido" class="quick-summary" aria-live="polite"></div>
+    <section id="bandejaAcciones" class="action-tray action-tray-priority hidden" aria-labelledby="bandejaAccionesTitulo">
+      <div class="action-tray-header">
+        <div>
+          <span class="eyebrow">Prioridad operativa</span>
+          <h3 id="bandejaAccionesTitulo">Pendientes que requieren atención</h3>
+          <p class="muted small">Resuelva el siguiente trámite sin buscar expediente por expediente.</p>
+        </div>
+        <span id="bandejaAccionesCount" class="badge"></span>
+      </div>
+      <div id="bandejaAccionesLista" class="action-list"></div>
+    </section>
     <section id="panelMovil" class="mobile-app-panel" aria-labelledby="panelMovilTitulo">
-      <div class="mobile-app-icon" aria-hidden="true">📲</div>
+      <div class="mobile-app-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="2.5" width="12" height="19" rx="2.2"/><path d="M10 18.5h4"/><path d="M12 6.5v5m-2.5-2.5h5"/></svg></div>
       <div class="mobile-app-copy">
         <span class="eyebrow">Aplicación móvil</span>
         <h3 id="panelMovilTitulo">Alertas de tareas de investigación</h3>
@@ -120,16 +131,7 @@
         <button id="btnInstalarApp" type="button" class="btn-secondary hidden">Instalar app</button>
         <button id="btnActivarAlertas" type="button" class="btn-primary">Activar alertas</button>
       </div>
-    </section>
-    <section id="bandejaAcciones" class="action-tray hidden" aria-labelledby="bandejaAccionesTitulo">
-      <div class="action-tray-header">
-        <div>
-          <span class="eyebrow">Siguiente acción</span>
-          <h3 id="bandejaAccionesTitulo">Pendientes prioritarios</h3>
-        </div>
-        <span id="bandejaAccionesCount" class="badge"></span>
-      </div>
-      <div id="bandejaAccionesLista" class="action-list"></div>
+      <button id="btnMostrarPanelMovil" type="button" class="btn-ghost hidden">Ver configuración de alertas</button>
     </section>
 
     <div class="table-wrap">

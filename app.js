@@ -143,6 +143,36 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+const ICONOS_UI = {
+  sol: '<circle cx="12" cy="12" r="3.5"/><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6m11 11 1.6 1.6M2 12h2.2m15.6 0H22M4.9 19.1l1.6-1.6m11-11 1.6-1.6"/>',
+  luna: '<path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2z"/>',
+  campana: '<path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
+  celular: '<rect x="6" y="2.5" width="12" height="19" rx="2.2"/><path d="M10 18.5h4"/>',
+  nube: '<path d="M7 18.5h10a4 4 0 0 0 .5-8A5.8 5.8 0 0 0 6.6 8.2 4.4 4.4 0 0 0 7 18.5z"/>',
+  documento: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',
+  carpeta: '<path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v9A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z"/>',
+  reloj: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>',
+  descarga: '<path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/>',
+  revisar: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4M8.5 11l1.7 1.7 3.4-3.4"/>',
+  cerebro: '<path d="M9 4a3 3 0 0 0-5 2.2A3.5 3.5 0 0 0 5 13a3.4 3.4 0 0 0 5.3 2.8M15 4a3 3 0 0 1 5 2.2A3.5 3.5 0 0 1 19 13a3.4 3.4 0 0 1-5.3 2.8M12 3v18M8 8h4m0 5h4"/>',
+  ojo: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.5"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+};
+function iconoSvg(nombre, clase = "ui-icon") {
+  const trazos = ICONOS_UI[nombre] || ICONOS_UI.documento;
+  return `<svg class="${clase}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${trazos}</svg>`;
+}
+
+function aplicarIconoDeBoton(id, icono, texto) {
+  const boton = $(id);
+  if (boton) boton.innerHTML = `${iconoSvg(icono, "button-icon")}${texto}`;
+}
+aplicarIconoDeBoton("btnResumenEjecutivo", "cerebro", "Resumen ejecutivo IA");
+aplicarIconoDeBoton("btnConectarDrive", "nube", "Conectar Drive");
+aplicarIconoDeBoton("btnRedactarHechoIA", "cerebro", "Redactar con IA");
+aplicarIconoDeBoton("btnSugerirCodigoIA", "cerebro", "Sugerir código con IA");
+const botonAsistente = $("btnAbrirAsistente");
+if (botonAsistente) botonAsistente.innerHTML = iconoSvg("cerebro", "ui-icon");
 // Mantiene el mismo comportamiento visual en cada tarea que tarda: guarda
 // texto y estado originales para restaurarlos incluso cuando el botón empezó
 // deshabilitado por alguna regla del formulario.
@@ -171,18 +201,62 @@ function ocuparBoton(btn, ocupado, texto = "Procesando...") {
 let avisoInstalacionDiferido = null;
 let registroMovil = null;
 function mostrarEstadoMovil(texto) { const el = $("estadoAlertasMovil"); if (el) el.textContent = texto; }
+function actualizarPanelMovil(alertasActivas) {
+  const panel = $("panelMovil");
+  const botonMostrar = $("btnMostrarPanelMovil");
+  if (!panel || !botonMostrar) return;
+  panel.classList.toggle("is-collapsed", Boolean(alertasActivas));
+  botonMostrar.classList.toggle("hidden", !alertasActivas);
+}
 function claveVapidComoBytes(valor) { const texto = atob(valor.replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(texto, (caracter) => caracter.charCodeAt(0)); }
 async function obtenerRegistroMovil() { if (!("serviceWorker" in navigator)) throw new Error("Este navegador no admite alertas."); if (!registroMovil) registroMovil = await navigator.serviceWorker.register("./sw.js", { scope: "./" }); return registroMovil; }
-async function prepararAlertasMovil() { const boton = $("btnActivarAlertas"); if (!state.session || !boton) return; if (!state.cip) { boton.disabled = true; mostrarEstadoMovil("Ingrese con su CIP para recibir solamente sus alertas personales."); return; } try { const registro = await obtenerRegistroMovil(); if (!("PushManager" in window) || !("Notification" in window)) { boton.disabled = true; mostrarEstadoMovil("Este navegador no permite alertas. Use Chrome en Android."); return; } if (Notification.permission === "denied") { boton.disabled = true; mostrarEstadoMovil("Las alertas están bloqueadas en este celular. Habilítelas desde los ajustes del navegador."); return; } const suscripcion = await registro.pushManager.getSubscription(); if (suscripcion && Notification.permission === "granted") { boton.disabled = true; mostrarEstadoMovil("✓ Alertas activas para su CIP en este celular."); } else { boton.disabled = false; mostrarEstadoMovil("Instale la aplicación y active alertas para recibir avisos internos de sanciones pendientes."); } } catch (error) { console.error(error); mostrarEstadoMovil("No se pudo preparar las alertas en este dispositivo."); } }
-async function activarAlertasMovil() { const boton = $("btnActivarAlertas"); if (!state.cip || !state.session) { mostrarEstadoMovil("Ingrese con su CIP para activar alertas personales."); return; } ocuparBoton(boton, true, "Activando..."); try { const permiso = await Notification.requestPermission(); if (permiso !== "granted") { mostrarEstadoMovil("No se activaron alertas. Debe permitirlas en el navegador."); return; } const registro = await obtenerRegistroMovil(); const suscripcion = await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: claveVapidComoBytes(VAPID_PUBLIC_KEY) }); const datos = suscripcion.toJSON(); const { error } = await supabase.from("suscripciones_movil").upsert({ user_id: state.session.user.id, cip: state.cip, endpoint: datos.endpoint, p256dh: datos.keys?.p256dh, auth: datos.keys?.auth, updated_at: new Date().toISOString() }, { onConflict: "endpoint" }); if (error) throw error; mostrarEstadoMovil("✓ Alertas activas para su CIP en este celular."); } catch (error) { console.error(error); mostrarEstadoMovil("No se pudieron activar las alertas. Intente nuevamente en unos minutos."); } finally { ocuparBoton(boton, false); } }
+async function prepararAlertasMovil() {
+  const boton = $("btnActivarAlertas");
+  if (!state.session || !boton) return;
+  if (!state.cip) { boton.disabled = true; actualizarPanelMovil(false); mostrarEstadoMovil("Ingrese con su CIP para recibir solamente sus alertas personales."); return; }
+  try {
+    const registro = await obtenerRegistroMovil();
+    if (!("PushManager" in window) || !("Notification" in window)) { boton.disabled = true; actualizarPanelMovil(false); mostrarEstadoMovil("Este navegador no permite alertas. Use Chrome en Android."); return; }
+    if (Notification.permission === "denied") { boton.disabled = true; actualizarPanelMovil(false); mostrarEstadoMovil("Las alertas están bloqueadas en este celular. Habilítelas desde los ajustes del navegador."); return; }
+    const suscripcion = await registro.pushManager.getSubscription();
+    if (suscripcion && Notification.permission === "granted") {
+      boton.disabled = true;
+      actualizarPanelMovil(true);
+      mostrarEstadoMovil("Alertas activas para su CIP en este celular.");
+    } else {
+      boton.disabled = false;
+      actualizarPanelMovil(false);
+      mostrarEstadoMovil("Instale la aplicación y active alertas para recibir avisos internos de sanciones pendientes.");
+    }
+  } catch (error) { console.error(error); actualizarPanelMovil(false); mostrarEstadoMovil("No se pudo preparar las alertas en este dispositivo."); }
+}
+async function activarAlertasMovil() {
+  const boton = $("btnActivarAlertas");
+  if (!state.cip || !state.session) { mostrarEstadoMovil("Ingrese con su CIP para activar alertas personales."); return; }
+  ocuparBoton(boton, true, "Activando...");
+  try {
+    const permiso = await Notification.requestPermission();
+    if (permiso !== "granted") { mostrarEstadoMovil("No se activaron alertas. Debe permitirlas en el navegador."); return; }
+    const registro = await obtenerRegistroMovil();
+    const suscripcion = await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: claveVapidComoBytes(VAPID_PUBLIC_KEY) });
+    const datos = suscripcion.toJSON();
+    const { error } = await supabase.from("suscripciones_movil").upsert({ user_id: state.session.user.id, cip: state.cip, endpoint: datos.endpoint, p256dh: datos.keys?.p256dh, auth: datos.keys?.auth, updated_at: new Date().toISOString() }, { onConflict: "endpoint" });
+    if (error) throw error;
+    actualizarPanelMovil(true);
+    mostrarEstadoMovil("Alertas activas para su CIP en este celular.");
+  } catch (error) { console.error(error); actualizarPanelMovil(false); mostrarEstadoMovil("No se pudieron activar las alertas. Intente nuevamente en unos minutos."); }
+  finally { ocuparBoton(boton, false); }
+}
+
 window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault(); avisoInstalacionDiferido = event; $("btnInstalarApp")?.classList.remove("hidden"); });
 $("btnInstalarApp")?.addEventListener("click", async () => { if (!avisoInstalacionDiferido) return; avisoInstalacionDiferido.prompt(); await avisoInstalacionDiferido.userChoice; avisoInstalacionDiferido = null; $("btnInstalarApp")?.classList.add("hidden"); });
 $("btnActivarAlertas")?.addEventListener("click", activarAlertasMovil);
+$("btnMostrarPanelMovil")?.addEventListener("click", () => actualizarPanelMovil(false));
 async function enviarAlertaSancionPendiente(casoId) { try { const { error } = await supabase.functions.invoke("rapid-action", { body: { casoId } }); if (error) throw error; } catch (error) { console.error("No se pudo enviar la alerta móvil:", error); } }
 // ---------- Tema claro/oscuro ----------
 function actualizarIconoTema() {
   const claro = document.documentElement.getAttribute("data-theme") === "light";
-  $("btnTemaToggle").textContent = claro ? "☀️" : "🌙";
+  $("btnTemaToggle").innerHTML = iconoSvg(claro ? "luna" : "sol", "theme-icon");
   $("btnTemaToggle").title = claro ? "Cambiar a tema oscuro" : "Cambiar a tema claro";
 }
 actualizarIconoTema();
@@ -659,13 +733,13 @@ function actualizarBotonRedactarIA() {
   const hayTexto = !!$("fDescripcionHecho").value.trim();
   btn.disabled = !hayArchivo && !hayTexto;
   if (hayArchivo) {
-    btn.textContent = "✨ Redactar con IA (desde el sustento)";
+    btn.innerHTML = `${iconoSvg("cerebro", "button-icon")}Redactar con IA`;
     btn.title = "";
   } else if (hayTexto) {
-    btn.textContent = "✨ Mejorar redacción con IA";
+    btn.innerHTML = `${iconoSvg("cerebro", "button-icon")}Mejorar redacción con IA`;
     btn.title = "";
   } else {
-    btn.textContent = "✨ Redactar con IA (desde el sustento)";
+    btn.innerHTML = `${iconoSvg("cerebro", "button-icon")}Redactar con IA`;
     btn.title = "Suba un archivo de sustento o escriba una descripción primero";
   }
 }
@@ -948,12 +1022,13 @@ function renderBandejaAcciones() {
   $("bandejaAccionesCount").textContent = `${acciones.length} pendiente${acciones.length === 1 ? "" : "s"}`;
   $("bandejaAccionesLista").innerHTML = acciones.slice(0, 5).map((accion) => `
     <article class="action-item ${accion.clase}">
+      <span class="action-icon">${iconoSvg(accion.tipo.includes("Plazo") ? "reloj" : accion.tipo.includes("expediente") ? "carpeta" : "documento")}</span>
       <div class="action-item-copy">
         <span class="action-type">${escapeHtml(accion.tipo)}</span>
         <strong>${escapeHtml(accion.nombre)}</strong>
         <span class="muted small">${escapeHtml(accion.detalle)}</span>
       </div>
-      <button type="button" class="btn-secondary btn-abrir-accion" data-id="${escapeHtml(accion.caso.id)}">Resolver</button>
+      <button type="button" class="btn-secondary btn-abrir-accion" data-id="${escapeHtml(accion.caso.id)}">${iconoSvg("chevron", "button-icon")}Resolver</button>
     </article>`).join("");
   document.querySelectorAll(".btn-abrir-accion").forEach((btn) => {
     btn.addEventListener("click", () => openCasoDetail(btn.dataset.id));
@@ -1042,10 +1117,10 @@ async function cargarEstadoRespaldoDrive() {
     const conexion = Array.isArray(data) ? data[0] : data;
     if (conexion?.conectado) {
       estado.textContent = `✓ Respaldo en Drive conectado${conexion.cuenta_google ? `: ${conexion.cuenta_google}` : ""}. Cada archivo se copia en la carpeta institucional.`;
-      boton.textContent = "☁ Reconectar Drive";
+      boton.innerHTML = `${iconoSvg("nube", "button-icon")}Reconectar Drive`;
     } else {
       estado.textContent = "Google Drive aún no está conectado. Los expedientes continúan protegidos en Supabase.";
-      boton.textContent = "☁ Conectar Drive";
+      boton.innerHTML = `${iconoSvg("nube", "button-icon")}Conectar Drive`;
     }
   } catch (error) {
     console.warn("No se pudo consultar Drive:", error);
@@ -1523,37 +1598,37 @@ function siguienteAccionCasoHtml(caso, isAdmin) {
   const orden = Boolean(caso.sancion_generada_at);
   const notificacionOrden = Boolean(caso.orden_notificada_at);
 
-  let icono = '→';
+  let icono = 'documento';
   let titulo = 'Complete los datos del hecho';
   let detalle = 'Registre fecha, infracción y el hecho constatado para continuar el trámite.';
   let tono = 'is-pending';
   if (hechoCompleto && !imputacion) {
-    icono = '⬇'; titulo = 'Genere la Imputación';
+    icono = 'descarga'; titulo = 'Genere la Imputación';
     detalle = 'Revise los datos y descargue la Imputación para iniciar el plazo del descargo.'; tono = 'is-ready';
   } else if (imputacion && !caso.fecha_descargo && !plazoVencido) {
-    icono = '◷'; titulo = 'Espere o registre el descargo';
+    icono = 'reloj'; titulo = 'Espere o registre el descargo';
     detalle = `El plazo está vigente hasta el ${formatDate(fechaLimiteDescargo(caso))}. Si se presenta antes, regístrelo aquí.`;
   } else if (plazoVencido && !caso.acta_no_descargo_generada_at) {
-    icono = '!'; titulo = 'Genere el Acta de No Descargo';
+    icono = 'documento'; titulo = 'Genere el Acta de No Descargo';
     detalle = 'El plazo venció sin descargo registrado. Genere el acta antes de continuar.'; tono = 'is-urgent';
   } else if (puedeEvaluar && !caso.sancion_analisis_texto) {
-    icono = '✦'; titulo = 'Complete la evaluación';
+    icono = 'cerebro'; titulo = 'Complete la evaluación';
     detalle = 'Resuma el descargo, realice el análisis y elija el tercio de sanción.'; tono = 'is-ready';
   } else if (puedeEvaluar && !orden) {
-    icono = '⬇'; titulo = 'Genere la Orden de Sanción';
+    icono = 'descarga'; titulo = 'Genere la Orden de Sanción';
     detalle = 'La evaluación está lista. Revise los datos y descargue la orden.'; tono = 'is-ready';
   } else if (orden && !notificacionOrden) {
-    icono = '✍'; titulo = 'Cargue el expediente firmado';
+    icono = 'carpeta'; titulo = 'Cargue el expediente firmado';
     detalle = 'Suba el legajo completo firmado en un PDF y confirme su fecha de notificación.';
   } else if (orden && notificacionOrden && isAdmin) {
-    icono = '✓'; titulo = 'Registre el expediente cerrado';
+    icono = 'carpeta'; titulo = 'Registre el expediente cerrado';
     detalle = 'En Recepción, adjunte el expediente firmado, HT y Oficio para archivarlo y respaldarlo.'; tono = 'is-ready';
   } else if (orden && notificacionOrden) {
-    icono = '✓'; titulo = 'Trámite concluido';
+    icono = 'documento'; titulo = 'Trámite concluido';
     detalle = 'La Orden fue notificada. El cierre administrativo corresponde al administrador.'; tono = 'is-done';
   }
   return `<aside class="next-action ${tono}" aria-label="Siguiente acción recomendada">
-    <span class="next-action-icon">${icono}</span>
+    <span class="next-action-icon">${iconoSvg(icono)}</span>
     <div><span class="eyebrow">Siguiente paso</span><strong>${titulo}</strong><p>${escapeHtml(detalle)}</p></div>
   </aside>`;
 }

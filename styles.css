@@ -656,3 +656,28 @@ tbody tr:last-child td { border-bottom: none; }
   :is(#view-dashboard, #view-seguimiento) .row-actions .btn-secondary { flex: 1; min-height: 46px; }
   :is(#view-dashboard, #view-seguimiento) .row-chevron { display: none; }
 }
+/* Inicio operativo: las prioridades se leen antes que las configuraciones. */
+.action-tray-priority { padding: 22px; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: 0 10px 28px rgba(var(--shadow-color), .14); }
+.action-tray-header p { margin: 6px 0 0; }
+.action-item { min-height: 112px; padding: 16px; }
+.action-icon { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; color: var(--accent); border-radius: 10px; background: var(--accent-soft); }
+.action-item.is-urgent .action-icon { color: var(--danger); background: var(--danger-soft); }
+.ui-icon { width: 19px; height: 19px; vertical-align: -0.18em; }
+.button-icon { width: 16px; height: 16px; margin-right: 5px; vertical-align: -0.14em; }
+.mobile-app-icon { color: var(--accent); font-size: inherit; }
+.mobile-app-icon svg { width: 23px; height: 23px; }
+.mobile-app-panel.is-collapsed { min-height: 52px; padding: 9px 14px; background: var(--bg-card); border-color: var(--border); }
+.mobile-app-panel.is-collapsed .mobile-app-icon { width: 32px; height: 32px; flex-basis: 32px; border-radius: 9px; }
+.mobile-app-panel.is-collapsed .mobile-app-icon svg { width: 17px; height: 17px; }
+.mobile-app-panel.is-collapsed .mobile-app-copy .eyebrow,
+.mobile-app-panel.is-collapsed .mobile-app-copy p,
+.mobile-app-panel.is-collapsed .mobile-app-actions { display: none; }
+.mobile-app-panel.is-collapsed .mobile-app-copy h3 { margin: 0; font-size: .85rem; color: var(--text-muted); font-weight: 600; }
+.mobile-app-panel.is-collapsed #btnMostrarPanelMovil { margin-left: auto; color: var(--accent); white-space: nowrap; }
+.theme-icon { width: 18px; height: 18px; }
+@media (max-width: 640px) {
+  .action-tray-priority { padding: 16px; }
+  .action-item { min-height: 0; }
+  .action-icon { flex-basis: 34px; width: 34px; height: 34px; }
+  .mobile-app-panel.is-collapsed #btnMostrarPanelMovil { width: auto; min-height: 36px; padding: 6px 8px; }
+}
