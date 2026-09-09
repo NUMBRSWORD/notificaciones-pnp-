@@ -514,7 +514,7 @@ function showView(id) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(id).classList.remove("hidden");
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  const map = { "view-dashboard": "casos", "view-efectivos": "efectivos", "view-directivas": "directivas", "view-agenda": "agenda", "view-documentos": "documentos", "view-recepcion": "recepcion", "view-panel": "panel", "view-historial": "historial" };
+  const map = { "view-dashboard": "casos", "view-seguimiento": "seguimiento", "view-efectivos": "efectivos", "view-directivas": "directivas", "view-agenda": "agenda", "view-documentos": "documentos", "view-recepcion": "recepcion", "view-panel": "panel", "view-historial": "historial" };
   if (map[id]) {
     document.querySelector(`.tab-btn[data-view="${map[id]}"]`)?.classList.add("active");
   }
@@ -524,6 +524,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const target = btn.dataset.view;
     if (target === "casos") { showView("view-dashboard"); loadCasos(); }
+    if (target === "seguimiento") { showView("view-seguimiento"); loadCasos(); }
     if (target === "efectivos") { showView("view-efectivos"); loadEfectivos(); }
     if (target === "directivas") { showView("view-directivas"); loadDirectivasView(); }
     if (target === "agenda") { showView("view-agenda"); renderAgenda(); }
@@ -872,6 +873,8 @@ $("registroForm").addEventListener("submit", async (e) => {
 });
 
 // ---------- Casos ----------
+function casoConcluido(caso) { return Boolean(caso.orden_notificada_at); }
+
 async function loadCasos() {
   const { data, error } = await supabase
     .from("casos")
@@ -879,13 +882,16 @@ async function loadCasos() {
     .order("fecha_hecho", { ascending: false });
   if (error) { console.error(error); return; }
   state.casos = data || [];
-  renderCasosTable(state.casos);
+  renderResumenRapido();
+  renderBandejaAcciones();
+  renderCasosTable(state.casos.filter((caso) => !casoConcluido(caso)), "casosTableBody", "casosEmpty");
+  aplicarFiltrosCasos();
 }
 
 let casosVisibles = [];
 
 function renderResumenRapido() {
-  const casos = state.casos || [];
+  const casos = (state.casos || []).filter((caso) => !casoConcluido(caso));
   const pendientes = casos.filter((c) => !c.imputacion_generada_at).length;
   const vencidos = casos.filter((c) => c.imputacion_generada_at && !c.fecha_descargo && !c.sancion_generada_at && plazoDescargoVencido(c)).length;
   const conDescargo = casos.filter((c) => c.fecha_descargo && !c.sancion_generada_at).length;
@@ -917,7 +923,7 @@ function diasHastaFecha(fecha) {
 
   return (state.casos || []).flatMap((caso) => {
     const nombre = nombreInvestigadoVisible(caso, true) || "Caso sin nombre";
-    if (caso.sancion_generada_at && !caso.orden_notificada_at) return [{ caso, nombre, prioridad: 0, tipo: "Registrar cargo de Orden", detalle: "La Orden fue generada; corresponde notificarla y subir el cargo firmado.", clase: "is-urgent" }];
+    if (caso.sancion_generada_at && !caso.orden_notificada_at) return [{ caso, nombre, prioridad: 0, tipo: "Cargar expediente firmado", detalle: "La Orden fue generada; corresponde subir el legajo completo firmado.", clase: "is-urgent" }];
     if (caso.imputacion_generada_at && !caso.fecha_descargo && !caso.sancion_generada_at && plazoDescargoVencido(caso)) {
       return [{ caso, nombre, prioridad: 1, tipo: "Plazo vencido", detalle: "Defina el siguiente trámite: acta de no descargo u orden de sanción.", clase: "is-urgent" }];
     }
@@ -1250,16 +1256,17 @@ async function submitDocumentosCierre(e) {
 
 $("buscarRecepcion")?.addEventListener("input", renderExpedientesRemitidos);
 
-function renderCasosTable(list) {
+function renderCasosTable(list, tbodyId = "casosTableBody", emptyId = "casosEmpty") {
+  const esSeguimiento = tbodyId === "seguimientoTableBody";
   casosVisibles = list;
-  renderResumenRapido();
-  renderBandejaAcciones();
-  const tbody = $("casosTableBody");
+  const tbody = $(tbodyId);
+  const empty = $(emptyId);
+  if (!tbody || !empty) return;
   tbody.innerHTML = "";
-  $("casosEmpty").classList.toggle("hidden", list.length > 0);
+  empty.classList.toggle("hidden", list.length > 0);
   for (const c of list) {
     const tr = document.createElement("tr");
-    const puedeDescargar = puedeGenerarImputacion(c, state.efectivos);
+    const puedeDescargar = !esSeguimiento && puedeGenerarImputacion(c, state.efectivos);
     tr.innerHTML = `
       <td class="case-grade">${escapeHtml(c.grado || "")}</td>
       <td class="case-person"><strong>${escapeHtml(nombreInvestigadoVisible(c))}</strong><span>${escapeHtml(c.unidad_investigado || "Expediente disciplinario")}</span></td>
@@ -1353,13 +1360,14 @@ function aplicarFiltrosCasos() {
   const desde = $("filtroDesde").value;
   const hasta = $("filtroHasta").value;
   const filtered = state.casos.filter((c) => {
+    if (!casoConcluido(c)) return false;
     const coincideTexto = !q || [c.nombres, c.apellidos, c.codigo_infraccion, c.grado]
       .filter(Boolean).join(" ").toLowerCase().includes(q);
     const coincideDesde = !desde || (c.fecha_hecho && c.fecha_hecho >= desde);
     const coincideHasta = !hasta || (c.fecha_hecho && c.fecha_hecho <= hasta);
     return coincideTexto && coincideDesde && coincideHasta;
   });
-  renderCasosTable(filtered);
+  renderCasosTable(filtered, "seguimientoTableBody", "seguimientoEmpty");
 }
 
 $("searchCasos").addEventListener("input", aplicarFiltrosCasos);
@@ -1478,6 +1486,7 @@ $("asistenteForm").addEventListener("submit", async (e) => {
 let chartsPanel = {};
 
 function estadoDeCaso(c) {
+  if (casoConcluido(c)) return "Expediente firmado registrado";
   if (!c.imputacion_generada_at) return "Notificación pendiente";
   if (c.sancion_generada_at) return "Sanción generada";
   if (c.fecha_descargo) return "Con descargo, evaluando";
@@ -1486,6 +1495,7 @@ function estadoDeCaso(c) {
 }
 
 function claseEstadoCaso(c) {
+  if (casoConcluido(c)) return "pill-yes";
   if (c.sancion_generada_at) return "pill-yes";
   if (c.fecha_descargo) return "pill-info";
   if (c.imputacion_generada_at && plazoDescargoVencido(c)) return "pill-danger";
@@ -1494,11 +1504,12 @@ function claseEstadoCaso(c) {
 }
 
 function progresoCasoHtml(c) {
-  const paso = c.sancion_generada_at ? 4 : c.fecha_descargo ? 3 : c.imputacion_generada_at ? 2 : 1;
+  const concluido = casoConcluido(c);
+  const paso = concluido ? 4 : c.sancion_generada_at ? 4 : c.fecha_descargo ? 3 : c.imputacion_generada_at ? 2 : 1;
   const etiquetas = ["Registro", "Imputación", "Descargo", "Sanción"];
   return `<div class="case-progress" title="${escapeHtml(estadoDeCaso(c))}">
-    <div class="case-progress-steps">${etiquetas.map((etiqueta, i) => `<span class="${i + 1 <= paso ? "is-done" : ""} ${i + 1 === paso ? "is-current" : ""}">${i + 1}</span>`).join("")}</div>
-    <span class="pill ${claseEstadoCaso(c)}">${escapeHtml(estadoDeCaso(c))}</span>
+    <div class="case-progress-steps">${etiquetas.map((etiqueta, i) => `<span class="${i + 1 <= paso ? "is-done" : ""} ${!concluido && i + 1 === paso ? "is-current" : ""}">${i + 1}</span>`).join("")}</div>
+    <span class="pill ${claseEstadoCaso(c)}">${concluido ? "✓ " : ""}${escapeHtml(estadoDeCaso(c))}</span>
   </div>`;
 }
 
@@ -1532,8 +1543,8 @@ function siguienteAccionCasoHtml(caso, isAdmin) {
     icono = '⬇'; titulo = 'Genere la Orden de Sanción';
     detalle = 'La evaluación está lista. Revise los datos y descargue la orden.'; tono = 'is-ready';
   } else if (orden && !notificacionOrden) {
-    icono = '✍'; titulo = 'Registre la notificación de la Orden';
-    detalle = 'Suba el cargo firmado y confirme su fecha de notificación.';
+    icono = '✍'; titulo = 'Cargue el expediente firmado';
+    detalle = 'Suba el legajo completo firmado en un PDF y confirme su fecha de notificación.';
   } else if (orden && notificacionOrden && isAdmin) {
     icono = '✓'; titulo = 'Registre el expediente cerrado';
     detalle = 'En Recepción, adjunte el expediente firmado, HT y Oficio para archivarlo y respaldarlo.'; tono = 'is-ready';
@@ -1743,6 +1754,7 @@ async function renderCasoDetail(caso) {
   const puedeGestionar = isAdmin || (!!state.cip && caso.oficial_constato_cip === state.cip);
   const sustentoArchivo = await fileLinkHtml("casos-imputacion-pnp", caso.archivo_sustento_path, caso.archivo_sustento_nombre);
   const descargoArchivo = await fileLinkHtml("casos-imputacion-pnp", caso.archivo_descargo_path, caso.archivo_descargo_nombre);
+  const expedienteFirmadoArchivo = await fileLinkHtml("casos-imputacion-pnp", caso.archivo_orden_notificacion_path, caso.archivo_orden_notificacion_nombre);
   const puedeDescargar = puedeGenerarImputacion(caso, state.efectivos);
   const infraccion = getInfraccion(caso.codigo_infraccion);
   const puedeActa = puedeGenerarActaNoDescargo(caso, state.efectivos);
@@ -1898,24 +1910,26 @@ async function renderCasoDetail(caso) {
 
     ${puedeGestionar && caso.sancion_generada_at ? `
     <div class="detail-card">
-      <h3>Notificación de la Orden de Sanción</h3>
+      <h3>Cargo del expediente firmado</h3>
       ${caso.orden_notificada_at ? `
-        <p class="muted small">Notificada el ${formatDate(caso.orden_notificada_at.slice(0, 10))}.</p>
+        <p class="muted small">Legajo registrado el ${formatDate(caso.orden_notificada_at.slice(0, 10))}.</p>
+        <div class="detail-grid"><div class="detail-field"><div class="label">Legajo firmado</div><div class="value">${expedienteFirmadoArchivo}</div></div>${caso.archivo_descargo_path ? `<div class="detail-field"><div class="label">Descargo adjunto por separado</div><div class="value">${descargoArchivo}</div></div>` : ""}</div>
       ` : `
-        <p class="muted small">Suba el cargo de notificación firmado por el investigado (la IA verifica que corresponda antes de guardar).</p>
+        <p class="muted small">Suba el legajo completo firmado en un solo PDF: Imputación, constancia de notificación, Descargo o Acta, Orden y cargo de notificación. La IA revisa qué documentos contiene antes de guardar.</p>
+        ${caso.archivo_descargo_path ? `<p class="success-message">✓ El descargo firmado ya está registrado (${escapeHtml(caso.archivo_descargo_nombre || "archivo adjunto")}) y se considera como documento ya disponible.</p>` : ""}
         <form id="ordenNotifForm">
-          <label>Cargo de notificación firmado (PDF o foto)
-            <input type="file" id="fOrdenNotifArchivo" accept="application/pdf,image/*" capture="environment" required />
+          <label>Expediente firmado completo (un solo PDF)
+            <input type="file" id="fOrdenNotifArchivo" accept="application/pdf" required />
           </label>
           <div class="modal-actions" style="justify-content:flex-start; margin:8px 0">
-            <button type="button" class="btn-secondary" id="btnVerificarNotifIA">✨ Verificar con IA</button>
+            <button type="button" class="btn-secondary" id="btnVerificarNotifIA">✨ Verificar con IA que esté completo</button>
           </div>
           <p id="ordenNotifIAStatus" class="muted small hidden"></p>
           <label>Fecha de notificación (la completa la IA si la detecta; verifíquela)
             <input type="date" id="fOrdenNotifFecha" required />
           </label>
           <p id="ordenNotifError" class="error hidden"></p>
-          <button type="submit" class="btn-primary">Registrar notificación</button>
+          <button type="submit" class="btn-primary">Registrar expediente firmado</button>
         </form>
       `}
     </div>
@@ -2256,49 +2270,58 @@ async function analizarDescargoConIA(caso) {
   }
 }
 
+function componentesEsperadosExpediente(caso) {
+  return [
+    { clave: "imputacion", etiqueta: "Inicio de Imputación firmado", yaConsta: false },
+    { clave: "notificacion", etiqueta: "Constancia de notificación o entrega", yaConsta: false },
+    { clave: "descargo_o_acta", etiqueta: caso.archivo_descargo_path ? "Descargo firmado" : "Acta de no descargo firmada", yaConsta: Boolean(caso.archivo_descargo_path) },
+    { clave: "orden", etiqueta: "Orden de sanción firmada", yaConsta: false },
+    { clave: "cargo", etiqueta: "Cargo de notificación de la Orden firmado", yaConsta: false },
+  ];
+}
+
 async function verificarNotificacionOrdenIA(caso) {
   const file = $("fOrdenNotifArchivo").files[0];
   const statusEl = $("ordenNotifIAStatus");
-  if (!file) { statusEl.textContent = "Seleccione primero el archivo del cargo firmado."; statusEl.classList.remove("hidden"); return; }
+  if (!file) {
+    statusEl.textContent = "Seleccione primero el PDF del expediente firmado.";
+    statusEl.classList.remove("hidden");
+    return;
+  }
   const btn = $("btnVerificarNotifIA");
-  btn.disabled = true;
-  btn.classList.add("is-busy");
+  ocuparBoton(btn, true, "Verificando...");
   statusEl.classList.remove("hidden");
-  statusEl.textContent = "Leyendo el archivo...";
+  statusEl.textContent = "Leyendo el PDF del expediente...";
   try {
-    const esPdf = file.type === "application/pdf";
-    const esImagen = file.type.startsWith("image/");
-    const textoDocumento = esPdf
-      ? await extractPdfText(file, (msg) => { statusEl.textContent = msg; })
-      : esImagen
-      ? await extractImagenTextoConOcr(file, (msg) => { statusEl.textContent = msg; })
-      : "";
-
-    statusEl.textContent = "Verificando con IA...";
+    const textoDocumento = await extractPdfText(file, (mensaje) => { statusEl.textContent = mensaje; });
+    if (!textoDocumento.trim()) throw new Error("No se pudo leer texto del PDF. Use un PDF con texto seleccionable o una copia escaneada legible.");
+    statusEl.textContent = "Comprobando los documentos del legajo con IA...";
     const infraccion = getInfraccion(caso.codigo_infraccion);
-    const sancionImpuesta = caso.sancion_tercio_label === "amonestacion" ? "amonestación" : `${caso.sancion_tercio_label} días de Sanción Simple`;
+    const sancionImpuesta = caso.sancion_tercio_label === "amonestacion" ? "amonestación" : `${caso.sancion_tercio_label || ""} días de Sanción Simple`.trim();
     const { data, error } = await supabase.functions.invoke("revisar-documento-ia", {
       body: {
-        tipo: "notificacion_orden",
+        tipo: "expediente_completo",
         investigadoCompleto: nombreInvestigadoVisible(caso, true),
         codigoInfraccion: normalizarCodigoInfraccion(caso.codigo_infraccion),
         sancionImpuesta,
+        componentesEsperados: componentesEsperadosExpediente(caso),
         textoDocumento,
       },
     });
     if (error) throw error;
     if (data?.error) throw new Error(data.error);
     if (data?.fecha_detectada) $("fOrdenNotifFecha").value = data.fecha_detectada;
+    const presentes = (data?.presentes || []).join(" · ");
+    const faltantes = (data?.faltantes || []).join(" · ");
     const observaciones = (data?.observaciones || []).join(" · ");
-    statusEl.textContent = data?.consistente
-      ? `✓ El documento corresponde a esta notificación.${observaciones ? " " + observaciones : ""}`
-      : `⚠ ${observaciones || "La IA no pudo confirmar que el documento corresponda. Revise antes de guardar."}`;
+    statusEl.innerHTML = data?.consistente
+      ? `<strong>✓ Legajo completo según la revisión automática.</strong>${presentes ? `<br><span class="muted">Documentos identificados: ${escapeHtml(presentes)}.</span>` : ""}${observaciones ? `<br><span class="muted">${escapeHtml(observaciones)}</span>` : ""}`
+      : `<strong>⚠ Revise antes de guardar.</strong>${faltantes ? `<br>Faltaría verificar: ${escapeHtml(faltantes)}.` : ""}${observaciones ? `<br><span class="muted">${escapeHtml(observaciones)}</span>` : ""}`;
   } catch (err) {
     console.error(err);
     statusEl.textContent = "No se pudo verificar con IA: " + (err.message || err);
   } finally {
-    btn.disabled = false;
-    btn.classList.remove("is-busy");
+    ocuparBoton(btn, false);
   }
 }
 
@@ -2310,17 +2333,26 @@ async function submitNotificacionOrden(e, caso) {
   const fecha = $("fOrdenNotifFecha").value;
   if (!file || !fecha) return;
 
-  const path = `${caso.id}/orden_notif_${Date.now()}_${file.name}`;
-  const { error: upErr } = await supabase.storage.from("casos-imputacion-pnp").upload(path, file);
-  if (upErr) { errEl.textContent = "Error al subir archivo: " + upErr.message; errEl.classList.remove("hidden"); return; }
+  const boton = e.target.querySelector("button[type=submit]");
+  ocuparBoton(boton, true, "Registrando...");
+  try {
+    const path = `${caso.id}/expediente_firmado_${Date.now()}_${file.name}`;
+    const { error: upErr } = await supabase.storage.from("casos-imputacion-pnp").upload(path, file);
+    if (upErr) throw new Error("Error al subir el expediente: " + upErr.message);
 
-  const { error } = await supabase.from("casos").update({
-    orden_notificada_at: `${fecha}T12:00:00.000Z`,
-    archivo_orden_notificacion_path: path,
-    archivo_orden_notificacion_nombre: file.name,
-  }).eq("id", caso.id);
-  if (error) { errEl.textContent = "Error: " + error.message; errEl.classList.remove("hidden"); return; }
-  openCasoDetail(caso.id);
+    const { error } = await supabase.from("casos").update({
+      orden_notificada_at: `${fecha}T12:00:00.000Z`,
+      archivo_orden_notificacion_path: path,
+      archivo_orden_notificacion_nombre: file.name,
+    }).eq("id", caso.id);
+    if (error) throw new Error("Error al registrar el expediente: " + error.message);
+    openCasoDetail(caso.id);
+  } catch (error) {
+    errEl.textContent = error.message || error;
+    errEl.classList.remove("hidden");
+  } finally {
+    ocuparBoton(boton, false);
+  }
 }
 
 async function submitSancion(e, caso) {

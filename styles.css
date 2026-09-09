@@ -99,6 +99,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 }
 .tab-btn:hover { background: var(--bg-card); color: var(--text); }
 .tab-btn.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+#tabSeguimiento { color: var(--accent); font-weight: 600; }
 .user-box { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--text-muted); }
 .search-shortcut { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 kbd { padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-muted); font: 0.72rem inherit; }
@@ -252,6 +253,10 @@ label.inline-filter {
   margin-bottom: 0; white-space: nowrap;
 }
 label.inline-filter input { padding: 8px 10px; }
+
+.search-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+.search-panel > input[type="search"] { flex: 1 1 260px; min-width: 0; }
+.search-panel .btn-ghost { padding-inline: 10px; }
 
 /* Card */
 .card {
@@ -513,6 +518,8 @@ tbody tr:last-child td { border-bottom: none; }
   .quick-summary-stats { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quick-summary-stats > div { min-width: 0; padding: 8px 9px; }
   .view-actions { width: 100%; }
+  .search-panel { flex-direction: column; align-items: stretch; }
+  .search-panel .inline-filter { justify-content: space-between; }
   .view-actions > input[type="search"] { flex: 1 1 100%; min-width: 0; }
   .view-actions .inline-filter { flex: 1; justify-content: space-between; }
   .view-actions .btn-primary, .view-actions > .btn-ghost, .actions-more { flex: 1; }
@@ -624,28 +631,28 @@ tbody tr:last-child td { border-bottom: none; }
 /* En el dashboard, las filas pasan a ser tarjetas: no se aplica a las tablas
    administrativas de Efectivos, Historial ni Documentos. */
 @media (max-width: 640px) {
-  #view-dashboard .table-wrap { margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; }
-  #view-dashboard .table-wrap table, #view-dashboard .table-wrap tbody { display: block; width: 100%; }
-  #view-dashboard .table-wrap thead { display: none; }
-  #view-dashboard .table-wrap tbody { display: grid; gap: 10px; }
-  #view-dashboard .table-wrap tbody tr {
+  :is(#view-dashboard, #view-seguimiento) .table-wrap { margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; }
+  :is(#view-dashboard, #view-seguimiento) .table-wrap table, :is(#view-dashboard, #view-seguimiento) .table-wrap tbody { display: block; width: 100%; }
+  :is(#view-dashboard, #view-seguimiento) .table-wrap thead { display: none; }
+  :is(#view-dashboard, #view-seguimiento) .table-wrap tbody { display: grid; gap: 10px; }
+  :is(#view-dashboard, #view-seguimiento) .table-wrap tbody tr {
     display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px;
     padding: 14px; border: 1px solid var(--border); border-radius: 14px;
     background: var(--bg-card); box-shadow: 0 3px 10px rgba(var(--shadow-color), 0.12);
   }
-  #view-dashboard .table-wrap tbody td { display: block; min-width: 0; padding: 0; border: 0; }
-  #view-dashboard .case-person { grid-column: 1 / -1; order: 1; }
-  #view-dashboard .case-person strong { font-size: 1rem; }
-  #view-dashboard .case-person span { max-width: 100%; font-size: 0.79rem; white-space: normal; }
-  #view-dashboard .case-grade { order: 2; width: fit-content; padding: 4px 8px !important; border-radius: 999px !important; background: var(--accent-soft); color: var(--accent); font-size: 0.73rem; font-weight: 700; }
-  #view-dashboard .case-date { order: 3; justify-self: end; color: var(--text-muted); font-size: 0.78rem; text-align: right; }
-  #view-dashboard .case-date::before { content: "Falta: "; font-weight: 600; }
-  #view-dashboard .case-code { order: 4; grid-column: 1 / -1; color: var(--text); font-size: 0.86rem; font-weight: 700; }
-  #view-dashboard .case-code::before { content: "Infracción: "; color: var(--text-muted); font-weight: 500; }
-  #view-dashboard .case-official { display: none; }
-  #view-dashboard .case-progress-cell { order: 5; grid-column: 1 / -1; padding-top: 9px; border-top: 1px solid var(--border); }
-  #view-dashboard .case-progress { min-width: 0; width: 100%; }
-  #view-dashboard .row-actions { order: 6; grid-column: 1 / -1; justify-content: stretch; padding-top: 3px; }
-  #view-dashboard .row-actions .btn-secondary { flex: 1; min-height: 46px; }
-  #view-dashboard .row-chevron { display: none; }
+  :is(#view-dashboard, #view-seguimiento) .table-wrap tbody td { display: block; min-width: 0; padding: 0; border: 0; }
+  :is(#view-dashboard, #view-seguimiento) .case-person { grid-column: 1 / -1; order: 1; }
+  :is(#view-dashboard, #view-seguimiento) .case-person strong { font-size: 1rem; }
+  :is(#view-dashboard, #view-seguimiento) .case-person span { max-width: 100%; font-size: 0.79rem; white-space: normal; }
+  :is(#view-dashboard, #view-seguimiento) .case-grade { order: 2; width: fit-content; padding: 4px 8px !important; border-radius: 999px !important; background: var(--accent-soft); color: var(--accent); font-size: 0.73rem; font-weight: 700; }
+  :is(#view-dashboard, #view-seguimiento) .case-date { order: 3; justify-self: end; color: var(--text-muted); font-size: 0.78rem; text-align: right; }
+  :is(#view-dashboard, #view-seguimiento) .case-date::before { content: "Falta: "; font-weight: 600; }
+  :is(#view-dashboard, #view-seguimiento) .case-code { order: 4; grid-column: 1 / -1; color: var(--text); font-size: 0.86rem; font-weight: 700; }
+  :is(#view-dashboard, #view-seguimiento) .case-code::before { content: "Infracción: "; color: var(--text-muted); font-weight: 500; }
+  :is(#view-dashboard, #view-seguimiento) .case-official { display: none; }
+  :is(#view-dashboard, #view-seguimiento) .case-progress-cell { order: 5; grid-column: 1 / -1; padding-top: 9px; border-top: 1px solid var(--border); }
+  :is(#view-dashboard, #view-seguimiento) .case-progress { min-width: 0; width: 100%; }
+  :is(#view-dashboard, #view-seguimiento) .row-actions { order: 6; grid-column: 1 / -1; justify-content: stretch; padding-top: 3px; }
+  :is(#view-dashboard, #view-seguimiento) .row-actions .btn-secondary { flex: 1; min-height: 46px; }
+  :is(#view-dashboard, #view-seguimiento) .row-chevron { display: none; }
 }

@@ -34,6 +34,7 @@
     </div>
     <nav class="tabs">
       <button class="tab-btn active" data-view="casos">Casos</button>
+      <button id="tabSeguimiento" class="tab-btn" data-view="seguimiento">Seguimiento</button>
       <button class="tab-btn admin-only hidden" data-view="efectivos">Efectivos</button>
       <button class="tab-btn admin-only hidden" data-view="directivas">Directivas</button>
       <button class="tab-btn admin-only hidden" data-view="agenda">Agenda</button>
@@ -104,18 +105,7 @@
         <p class="muted view-subtitle">Revise el avance de cada caso y continúe desde el siguiente paso pendiente.</p>
       </div>
       <div class="view-actions">
-        <input id="searchCasos" type="search" placeholder="Buscar por nombre, apellido o código..." />
-        <label class="inline-filter">Desde <input id="filtroDesde" type="date" /></label>
-        <label class="inline-filter">Hasta <input id="filtroHasta" type="date" /></label>
         <button id="btnNuevoCaso" class="btn-primary">+ Nuevo caso</button>
-        <details class="actions-more">
-          <summary class="btn-secondary">Más acciones</summary>
-          <div class="actions-more-menu">
-            <button id="btnLimpiarFiltroFecha" class="btn-ghost">Limpiar fechas</button>
-            <button id="btnExportarExcel" class="btn-ghost">Exportar a Excel</button>
-            <button id="btnResumenEjecutivo" class="btn-ghost">✨ Resumen ejecutivo IA</button>
-          </div>
-        </details>
       </div>
     </div>
     <div id="casosResumenRapido" class="quick-summary" aria-live="polite"></div>
@@ -141,14 +131,7 @@
       </div>
       <div id="bandejaAccionesLista" class="action-list"></div>
     </section>
-    <div id="resumenEjecutivoPanel" class="detail-card hidden" style="margin-bottom:16px">
-      <div class="detail-card-header">
-        <h3>Resumen ejecutivo (IA)</h3>
-        <button type="button" id="btnCerrarResumenEjecutivo" class="btn-ghost">✕</button>
-      </div>
-      <p id="resumenEjecutivoStatus" class="muted small hidden"></p>
-      <p id="resumenEjecutivoContenido" style="white-space:pre-wrap"></p>
-    </div>
+
     <div class="table-wrap">
       <table>
         <thead>
@@ -169,6 +152,38 @@
         <span class="muted">Cree el primer caso para iniciar el seguimiento.</span>
         <button type="button" id="btnCrearPrimerCaso" class="btn-primary">+ Crear primer caso</button>
       </div>
+    </div>
+  </section>
+
+  <!-- SEGUIMIENTO: expedientes ya concluidos, búsqueda y reporte -->
+  <section id="view-seguimiento" class="view hidden">
+    <div class="view-header">
+      <div>
+        <h2>Seguimiento</h2>
+        <p class="muted view-subtitle">Expedientes concluidos: Orden notificada. Búsquelos, filtre por fecha o genere un resumen ejecutivo.</p>
+      </div>
+      <div class="view-actions">
+        <button id="btnExportarExcel" class="btn-secondary">Exportar a Excel</button>
+        <button id="btnResumenEjecutivo" class="btn-secondary">✨ Resumen ejecutivo IA</button>
+      </div>
+    </div>
+    <div id="panelBusquedaCasos" class="search-panel">
+      <input id="searchCasos" type="search" placeholder="Buscar por nombre, apellido o código..." />
+      <label class="inline-filter">Desde <input id="filtroDesde" type="date" /></label>
+      <label class="inline-filter">Hasta <input id="filtroHasta" type="date" /></label>
+      <button id="btnLimpiarFiltroFecha" class="btn-ghost">Limpiar</button>
+    </div>
+    <div id="resumenEjecutivoPanel" class="detail-card hidden" style="margin-bottom:16px">
+      <div class="detail-card-header"><h3>Resumen ejecutivo (IA)</h3><button type="button" id="btnCerrarResumenEjecutivo" class="btn-ghost">✕</button></div>
+      <p id="resumenEjecutivoStatus" class="muted small hidden"></p>
+      <p id="resumenEjecutivoContenido" style="white-space:pre-wrap"></p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Grado</th><th>Nombres y apellidos</th><th class="column-secondary">Fecha del hecho</th><th>Código infracción</th><th class="column-secondary">Oficial que constató</th><th>Etapa actual</th><th></th></tr></thead>
+        <tbody id="seguimientoTableBody"></tbody>
+      </table>
+      <div id="seguimientoEmpty" class="empty-state hidden"><strong>No hay expedientes concluidos</strong><span class="muted">Los casos aparecerán aquí después de registrar la notificación de la Orden.</span></div>
     </div>
   </section>
 
