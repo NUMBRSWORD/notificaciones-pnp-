@@ -35,7 +35,9 @@
     <nav class="tabs">
       <button class="tab-btn active" data-view="casos">Casos</button>
       <button id="tabSeguimiento" class="tab-btn" data-view="seguimiento">Seguimiento</button>
+      <button class="tab-btn" data-view="cumplimiento">Cumplimiento</button>
       <button class="tab-btn admin-only hidden" data-view="efectivos">Efectivos</button>
+      <button class="tab-btn admin-only hidden" data-view="roles">Roles</button>
       <button class="tab-btn admin-only hidden" data-view="directivas">Directivas</button>
       <button class="tab-btn admin-only hidden" data-view="agenda">Agenda</button>
       <button class="tab-btn admin-only hidden" data-view="documentos">Documentos</button>
@@ -296,6 +298,22 @@
     <div id="casoDetailContent"></div>
   </section>
 
+
+  <section id="view-roles" class="view hidden">
+    <div class="view-header"><div><h2>Roles de servicio</h2><p class="muted view-subtitle">Biblioteca de roles por fecha. La IA identifica el puesto asignado cuando se registra un caso.</p></div></div>
+    <section class="detail-card"><form id="rolForm" class="grid-2">
+      <label>Fecha del rol<input type="date" id="rolFecha" required /></label>
+      <label>Archivo del rol (PDF o imagen)<input type="file" id="rolArchivo" accept="application/pdf,image/*" required /></label>
+      <p id="rolFormError" class="error hidden" role="alert"></p><p id="rolFormStatus" class="muted small hidden"></p>
+      <div class="modal-actions" style="grid-column:1/-1;justify-content:flex-start"><button type="submit" class="btn-primary">Subir rol</button></div>
+    </form></section>
+    <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Archivo</th><th></th></tr></thead><tbody id="rolesTableBody"></tbody></table><p id="rolesEmpty" class="muted hidden">No hay roles cargados todavía.</p></div>
+  </section>
+
+  <section id="view-cumplimiento" class="view hidden">
+    <div class="view-header"><div><h2>Cumplimiento</h2><p class="muted view-subtitle">Políticas institucionales y constancia de lectura con su cuenta autenticada.</p></div></div>
+    <div id="cumplimientoLista"></div><p id="cumplimientoEmpty" class="muted hidden">No hay documentos institucionales disponibles.</p>
+  </section>
   <!-- DIRECTIVAS INTERNAS -->
   <section id="view-directivas" class="view hidden">
     <div class="view-header">
@@ -317,6 +335,12 @@
     <p id="panelEmpty" class="muted hidden">Todavía no hay casos para mostrar métricas.</p>
     <div id="panelContenido">
       <div class="panel-stats" id="panelStats"></div>
+      <section class="detail-card" id="resumenMensualCard">
+        <div class="detail-card-header"><div><h3>Resumen mensual</h3><span class="muted small">Casos por código y personal reiterativo</span></div><select id="resumenMesSelect"></select></div>
+        <div class="panel-stats" id="resumenMensualStats"></div>
+        <p class="eyebrow">Por código de infracción</p><div class="table-wrap"><table><thead><tr><th>Código</th><th>Cantidad</th></tr></thead><tbody id="resumenCodigoBody"></tbody></table></div>
+        <p class="eyebrow" style="margin-top:20px">Reiterativos — más de 3 casos en el mes</p><div class="table-wrap"><table><thead><tr><th>Caso</th><th>Grado</th><th>Casos</th><th>Códigos del mes</th></tr></thead><tbody id="resumenReiterativosBody"></tbody></table></div><p id="resumenReiterativosEmpty" class="muted small hidden">Nadie superó los 3 casos este mes.</p>
+      </section>
       <div class="panel-charts">
         <div class="detail-card panel-chart-card">
           <h3>Casos por estado del trámite</h3>
@@ -456,6 +480,14 @@
         </datalist>
         <span class="form-help">Seleccione un cargo frecuente o escriba el cargo que corresponda. Se insertará en el sello.</span>
       </label>
+      <label>Rol de servicio del día del hecho (opcional)
+        <input type="file" id="fArchivoRol" accept="application/pdf,image/*" />
+        <span class="form-help">Si ya se cargó el rol en la pestaña Roles, se usará automáticamente por fecha.</span>
+      </label>
+      <label>Puesto / servicio según el rol
+        <input type="text" id="fPuestoRol" placeholder="La IA lo completa; verifíquelo antes de guardar" />
+      </label>
+      <p id="rolAutoStatus" class="muted small hidden"></p>
       <label>Archivo de sustento (opcional: foto, PDF, parte, etc.)
         <input type="file" id="fArchivoSustento" accept="application/pdf,image/*" capture="environment" />
       </label>

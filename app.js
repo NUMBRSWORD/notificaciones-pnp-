@@ -7,6 +7,7 @@ import { renderizarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargo
 import { renderizarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault, construirDatosOrdenSancion } from "./lib/ordenSancion.js";
 import { getInfraccion, normalizarCodigoInfraccion, ANEXO_I } from "./lib/anexoI.js";
 import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva, subirArchivoDirectiva } from "./lib/directivas.js";
+import { listarDocumentosInstitucionales, listarFirmasDocumentos, firmarDocumento, actualizarContenidoDocumentoInstitucional } from "./lib/cumplimiento.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
 import { nombreCompletoVisible } from "./lib/utils.js";
@@ -138,6 +139,9 @@ const state = {
   efectivos: [],
   directivas: [],
   expedientesRemitidos: [],
+  rolesServicio: [],
+  cumplimientoDocs: [],
+  cumplimientoFirmas: [],
   currentCasoId: null,
 };
 
@@ -573,6 +577,7 @@ function vistaPreviaOrden(caso) {
 // ---------- View switching ----------
 const VISTAS_SOLO_ADMIN = new Set([
   "view-efectivos",
+  "view-roles",
   "view-directivas",
   "view-agenda",
   "view-documentos",
@@ -588,7 +593,7 @@ function showView(id) {
   document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(id).classList.remove("hidden");
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  const map = { "view-dashboard": "casos", "view-seguimiento": "seguimiento", "view-efectivos": "efectivos", "view-directivas": "directivas", "view-agenda": "agenda", "view-documentos": "documentos", "view-recepcion": "recepcion", "view-panel": "panel", "view-historial": "historial" };
+  const map = { "view-dashboard": "casos", "view-seguimiento": "seguimiento", "view-cumplimiento": "cumplimiento", "view-roles": "roles", "view-efectivos": "efectivos", "view-directivas": "directivas", "view-agenda": "agenda", "view-documentos": "documentos", "view-recepcion": "recepcion", "view-panel": "panel", "view-historial": "historial" };
   if (map[id]) {
     document.querySelector(`.tab-btn[data-view="${map[id]}"]`)?.classList.add("active");
   }
@@ -599,6 +604,8 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     const target = btn.dataset.view;
     if (target === "casos") { showView("view-dashboard"); loadCasos(); }
     if (target === "seguimiento") { showView("view-seguimiento"); loadCasos(); }
+    if (target === "cumplimiento") { showView("view-cumplimiento"); loadCumplimientoView(); }
+    if (target === "roles") { showView("view-roles"); loadRolesServicio(); }
     if (target === "efectivos") { showView("view-efectivos"); loadEfectivos(); }
     if (target === "directivas") { showView("view-directivas"); loadDirectivasView(); }
     if (target === "agenda") { showView("view-agenda"); renderAgenda(); }
@@ -639,19 +646,19 @@ function renderBusquedaGlobal() {
   resultados.innerHTML = "";
 
   if (normalizarBusqueda(consulta).length < 2) {
-    ayuda.textContent = "Escriba al menos dos letras para buscar en expedientes y efectivos.";
+    ayuda.textContent = "Escriba al menos dos letras para buscar en expedientes. El padrón completo es solo para administración.";
     return;
   }
 
   const casos = state.casos.filter((caso) => coincideBusqueda(consulta, [
     caso.nombres, caso.apellidos, caso.grado, caso.codigo_infraccion,
   ]));
-  const efectivos = state.efectivos.filter((efectivo) => coincideBusqueda(consulta, [
+  const efectivos = state.role === "admin" ? state.efectivos.filter((efectivo) => coincideBusqueda(consulta, [
     efectivo.apellidos_nombres, efectivo.grado, efectivo.cip,
-  ]));
+  ])) : [];
   const total = casos.length + efectivos.length;
   ayuda.textContent = total
-    ? `${total} coincidencia${total === 1 ? "" : "s"}. Puede abrir un expediente o consultar los datos del efectivo.`
+    ? `${total} coincidencia${total === 1 ? "" : "s"}. Puede abrir un expediente o consultar los datos permitidos.`
     : "No se encontraron personas ni expedientes con ese nombre o apellido.";
 
   const filasCasos = casos.map((caso) => `
@@ -875,6 +882,8 @@ async function onAuthed(session) {
   // Se precarga en segundo plano (no se espera) para que estén listas en
   // cuanto se abra el formulario de Orden de Sanción, sin retrasar el login.
   loadDirectivasView();
+  void loadCumplimientoView();
+  void loadRolesServicio();
 }
 
 function onSignedOut() {
@@ -1687,6 +1696,52 @@ function colorTema(varName) {
 
 const MESES_CORTO_PANEL = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
+function etiquetaMesPanel(ym) {
+  const [anio, mes] = ym.split("-");
+  const nombre = MESES_CORTO_PANEL[Number(mes) - 1] || mes;
+  return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)} ${anio}`;
+}
+
+function calcularResumenMensual(ym) {
+  const casos = state.casos.filter((caso) => (caso.fecha_hecho || "").slice(0, 7) === ym);
+  const codigoCounts = {};
+  const personas = new Map();
+  casos.forEach((caso) => {
+    const codigo = (caso.codigo_infraccion || "").trim() || "Sin código";
+    codigoCounts[codigo] = (codigoCounts[codigo] || 0) + 1;
+    const clave = normalizarBusqueda(`${caso.apellidos || ""} ${caso.nombres || ""}`) || "sin-identificar";
+    const actual = personas.get(clave) || { grado: caso.grado || "", codigos: [] };
+    actual.codigos.push(codigo); actual.grado = caso.grado || actual.grado;
+    personas.set(clave, actual);
+  });
+  const lista = [...personas.values()];
+  const masDe3 = lista.filter((p) => p.codigos.length > 3).sort((a, b) => b.codigos.length - a.codigos.length).map((p) => {
+    const conteo = {}; p.codigos.forEach((codigo) => { conteo[codigo] = (conteo[codigo] || 0) + 1; });
+    return { grado: p.grado, casos: p.codigos.length, conteo };
+  });
+  return { total: casos.length, efectivos: lista.length, reiterativos: lista.filter((p) => p.codigos.length > 1).length, codigoCounts, masDe3 };
+}
+
+function renderResumenMensual(ym) {
+  if (!ym) return;
+  const resumen = calcularResumenMensual(ym);
+  $("resumenMensualStats").innerHTML = `<div class="stat-tile"><div class="stat-value">${resumen.total}</div><div class="stat-label">Casos registrados</div></div><div class="stat-tile"><div class="stat-value">${resumen.efectivos}</div><div class="stat-label">Efectivos distintos</div></div><div class="stat-tile"><div class="stat-value">${resumen.reiterativos}</div><div class="stat-label">Reiterativos (2+)</div></div><div class="stat-tile"><div class="stat-value">${resumen.masDe3.length}</div><div class="stat-label">Más de 3 casos</div></div>`;
+  const codigos = Object.entries(resumen.codigoCounts).sort((a, b) => b[1] - a[1]);
+  $("resumenCodigoBody").innerHTML = codigos.length ? codigos.map(([codigo, cantidad]) => `<tr><td><span class="pill pill-yes">${escapeHtml(codigo)}</span></td><td>${cantidad}</td></tr>`).join("") + `<tr class="total"><td>Total</td><td>${resumen.total}</td></tr>` : `<tr><td colspan="2" class="muted">Sin casos este mes.</td></tr>`;
+  $("resumenReiterativosBody").innerHTML = resumen.masDe3.map((persona, indice) => `<tr><td>Reiterativo N.° ${indice + 1}</td><td>${escapeHtml(persona.grado || "-")}</td><td>${persona.casos}</td><td>${Object.entries(persona.conteo).map(([codigo, cantidad]) => `<span class="pill pill-yes">${escapeHtml(codigo)} ×${cantidad}</span>`).join(" ")}</td></tr>`).join("");
+  $("resumenReiterativosEmpty").classList.toggle("hidden", resumen.masDe3.length > 0);
+}
+
+function inicializarResumenMensual() {
+  const selector = $("resumenMesSelect");
+  const meses = [...new Set(state.casos.map((caso) => (caso.fecha_hecho || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+  if (!meses.length) { selector.innerHTML = ""; return; }
+  const previo = selector.value;
+  selector.innerHTML = meses.map((mes) => `<option value="${mes}">${etiquetaMesPanel(mes)}</option>`).join("");
+  selector.value = meses.includes(previo) ? previo : meses[0];
+  renderResumenMensual(selector.value);
+}
+$("resumenMesSelect")?.addEventListener("change", (e) => renderResumenMensual(e.target.value));
 function renderPanel() {
   const casos = state.casos;
   $("panelEmpty").classList.toggle("hidden", casos.length > 0);
@@ -1694,6 +1749,7 @@ function renderPanel() {
   Object.values(chartsPanel).forEach((c) => c.destroy());
   chartsPanel = {};
   if (!casos.length) return;
+  inicializarResumenMensual();
 
   const text = colorTema("--text");
   const textMuted = colorTema("--text-muted");
@@ -2485,6 +2541,126 @@ async function eliminarCaso(id) {
   loadCasos();
 }
 
+// ---------- Roles de servicio (biblioteca por fecha) ----------
+async function loadRolesServicio() {
+  const { data, error } = await supabase.from("roles_servicio").select("*").order("fecha", { ascending: false });
+  if (error) { console.error(error); return; }
+  state.rolesServicio = data || [];
+  await renderRolesServicioTabla();
+}
+
+function rolGuardadoParaFecha(fecha) {
+  if (!fecha) return null;
+  return state.rolesServicio.find((rol) => fecha >= rol.fecha && fecha <= (rol.fecha_fin || rol.fecha)) || null;
+}
+
+async function renderRolesServicioTabla() {
+  const tbody = $("rolesTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  $("rolesEmpty").classList.toggle("hidden", state.rolesServicio.length > 0);
+  for (const rol of state.rolesServicio) {
+    const enlace = await fileLinkHtml("casos-imputacion-pnp", rol.archivo_path, rol.archivo_nombre);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${formatDate(rol.fecha)}${rol.fecha_fin && rol.fecha_fin !== rol.fecha ? ` a ${formatDate(rol.fecha_fin)}` : ""}</td><td>${enlace}</td><td class="row-actions">${state.role === "admin" ? `<button type="button" class="btn-danger btn-borrar-rol" data-id="${rol.id}" data-path="${escapeHtml(rol.archivo_path)}">Eliminar</button>` : ""}</td>`;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll(".btn-borrar-rol").forEach((boton) => boton.addEventListener("click", () => eliminarRolServicio(boton.dataset.id, boton.dataset.path)));
+}
+
+async function eliminarRolServicio(id, path) {
+  if (!confirm("¿Eliminar este rol de servicio?")) return;
+  const { error } = await supabase.from("roles_servicio").delete().eq("id", id);
+  if (error) { alert("No se pudo eliminar: " + error.message); return; }
+  if (path) await supabase.storage.from("casos-imputacion-pnp").remove([path]);
+  await loadRolesServicio();
+}
+
+async function extraerPuestoRolIA(texto, persona, fecha) {
+  const { data, error } = await supabase.functions.invoke("extraer-puesto-rol", { body: { texto, persona, fecha } });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+function aplicarPuestoRol(resultado, fecha) {
+  const estado = $("rolAutoStatus");
+  const inicio = resultado?.fecha_rol_inicio;
+  const fin = resultado?.fecha_rol_fin || inicio;
+  estado.classList.remove("hidden");
+  if (inicio && (fecha < inicio || fecha > fin)) {
+    $("fPuestoRol").value = "";
+    estado.textContent = `⚠ El archivo corresponde al ${formatDate(inicio)}${fin && fin !== inicio ? ` al ${formatDate(fin)}` : ""}, no a la fecha del hecho.`;
+    return;
+  }
+  if (resultado?.puesto) {
+    $("fPuestoRol").value = resultado.puesto;
+    estado.textContent = `✓ Puesto identificado: ${resultado.puesto}. Verifíquelo antes de guardar.`;
+  } else if (resultado?.situacion && resultado.situacion !== "normal") {
+    $("fPuestoRol").value = "";
+    estado.textContent = `⚠ Situación detectada en el rol: ${resultado.situacion.replaceAll("_", " ")}. ${resultado.detalle_novedad || "Verifique antes de continuar."}`;
+  } else {
+    estado.textContent = "No se ubicó el puesto en el rol. Puede completarlo manualmente.";
+  }
+}
+
+async function resolverPuestoDesdeRolGuardado() {
+  if ($("fArchivoRol")?.files[0]) return;
+  const fecha = $("fFechaHecho")?.value;
+  const persona = `${$("fApellidos")?.value.trim() || ""} ${$("fNombres")?.value.trim() || ""}`.trim();
+  if (!fecha || !persona) return;
+  const rol = rolGuardadoParaFecha(fecha);
+  if (!rol?.texto_extraido) return;
+  const estado = $("rolAutoStatus");
+  estado.classList.remove("hidden");
+  estado.textContent = "Buscando el puesto en el rol guardado...";
+  try { aplicarPuestoRol(await extraerPuestoRolIA(rol.texto_extraido, persona, fecha), fecha); }
+  catch (error) { console.error(error); estado.textContent = "No se pudo consultar el rol guardado. Complete el puesto manualmente."; }
+}
+
+async function leerRolAdjunto(file) {
+  if (!file) return;
+  const fecha = $("fFechaHecho")?.value;
+  const persona = `${$("fApellidos")?.value.trim() || ""} ${$("fNombres")?.value.trim() || ""}`.trim();
+  const estado = $("rolAutoStatus");
+  estado.classList.remove("hidden");
+  if (!fecha || !persona) { estado.textContent = "Complete fecha, apellidos y nombres antes de analizar el rol."; return; }
+  try {
+    const texto = file.type === "application/pdf" ? await extractPdfText(file, (m) => { estado.textContent = m; }) : await extractImagenTextoConOcr(file, (m) => { estado.textContent = m; });
+    estado.textContent = "Identificando el puesto con IA...";
+    aplicarPuestoRol(await extraerPuestoRolIA(texto, persona, fecha), fecha);
+  } catch (error) { console.error(error); estado.textContent = "No se pudo leer el rol. Complete el puesto manualmente."; }
+}
+
+$("fArchivoRol")?.addEventListener("change", (e) => { void leerRolAdjunto(e.target.files[0]); });
+$("fFechaHecho")?.addEventListener("change", () => { void resolverPuestoDesdeRolGuardado(); });
+$("fApellidos")?.addEventListener("blur", () => { void resolverPuestoDesdeRolGuardado(); });
+$("fNombres")?.addEventListener("blur", () => { void resolverPuestoDesdeRolGuardado(); });
+
+$("rolForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fecha = $("rolFecha").value;
+  const file = $("rolArchivo").files[0];
+  const errorEl = $("rolFormError");
+  const status = $("rolFormStatus");
+  errorEl.classList.add("hidden");
+  if (!fecha || !file) { errorEl.textContent = "Elija la fecha y el archivo del rol."; errorEl.classList.remove("hidden"); return; }
+  const boton = e.target.querySelector("button[type=submit]");
+  ocuparBoton(boton, true, "Subiendo...");
+  status.classList.remove("hidden");
+  try {
+    const texto = file.type === "application/pdf" ? await extractPdfText(file, (m) => { status.textContent = m; }) : await extractImagenTextoConOcr(file, (m) => { status.textContent = m; });
+    let fechaFin = null;
+    try { fechaFin = (await extraerPuestoRolIA(texto, "verificación de fecha", fecha))?.fecha_rol_fin || null; } catch (_) { /* el rol se guarda aun si falla la lectura IA */ }
+    const path = `roles_servicio/${fecha}_${Date.now()}_${segmentoRuta(file.name, "rol.pdf")}`;
+    const { error: uploadError } = await supabase.storage.from("casos-imputacion-pnp").upload(path, file);
+    if (uploadError) throw uploadError;
+    const { error } = await supabase.from("roles_servicio").upsert({ fecha, fecha_fin: fechaFin, archivo_path: path, archivo_nombre: file.name, texto_extraido: texto, subido_por: state.session.user.id, updated_at: new Date().toISOString() }, { onConflict: "fecha" });
+    if (error) throw error;
+    e.target.reset(); status.textContent = "✓ Rol guardado."; await loadRolesServicio();
+  } catch (error) { console.error(error); errorEl.textContent = "No se pudo subir el rol: " + (error.message || error); errorEl.classList.remove("hidden"); }
+  finally { ocuparBoton(boton, false); }
+});
 // ---------- Efectivos ----------
 async function loadEfectivos() {
   const { data, error } = await supabase
@@ -2636,6 +2812,7 @@ $("casoForm").addEventListener("submit", async (e) => {
     // decidir qué casos puede ver cada oficial, no solo el admin.
     oficial_constato_cip: buscarOficialConstato(oficialConstatoTexto, state.efectivos)?.cip || null,
     investigado_cip: buscarInvestigado($("fApellidos").value.trim(), $("fNombres").value.trim(), state.efectivos)?.cip || null,
+    puesto_rol: $("fPuestoRol")?.value.trim() || null,
   };
 
   const submitBtn = e.target.querySelector("button[type=submit]");
@@ -2662,6 +2839,62 @@ $("casoForm").addEventListener("submit", async (e) => {
   }
 });
 
+// ---------- Cumplimiento: políticas y firma electrónica simple ----------
+function fechaHoraFirma(valor) {
+  if (!valor) return "";
+  return new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short" }).format(new Date(valor));
+}
+
+async function loadCumplimientoView() {
+  try {
+    [state.cumplimientoDocs, state.cumplimientoFirmas] = await Promise.all([
+      listarDocumentosInstitucionales(supabase), listarFirmasDocumentos(supabase),
+    ]);
+  } catch (error) {
+    console.error(error);
+    state.cumplimientoDocs = []; state.cumplimientoFirmas = [];
+  }
+  renderCumplimientoLista();
+}
+
+function renderCumplimientoLista() {
+  const contenedor = $("cumplimientoLista");
+  if (!contenedor) return;
+  const esAdmin = state.role === "admin";
+  const miId = state.session?.user?.id;
+  $("cumplimientoEmpty").classList.toggle("hidden", state.cumplimientoDocs.length > 0);
+  contenedor.innerHTML = state.cumplimientoDocs.map((doc) => {
+    const firmas = state.cumplimientoFirmas.filter((f) => f.documento_id === doc.id);
+    const vigentes = firmas.filter((f) => f.documento_version === doc.version);
+    const miFirma = vigentes.find((f) => f.firmante_id === miId);
+    return `<article class="directiva-card cumplimiento-card" data-id="${doc.id}">
+      <div class="directiva-card-header"><h3>${escapeHtml(doc.titulo)}</h3><span class="pill ${miFirma ? "pill-yes" : "pill-warning"}">${miFirma ? "Firmado por usted" : "Pendiente de firma"}</span></div>
+      <div class="directiva-contenido">${escapeHtml(doc.contenido)}</div>
+      <p class="muted small">Versión ${doc.version} · ${vigentes.length} firma(s) vigente(s)${firmas.length > vigentes.length ? ` · ${firmas.length - vigentes.length} de versión anterior` : ""}</p>
+      ${vigentes.length ? `<div class="firmas-lista">${vigentes.map((f) => `<div class="firma-item">${iconoSvg("revisar")}<span><strong>${escapeHtml(f.firmante_nombre)}</strong>${f.firmante_grado ? ` — ${escapeHtml(f.firmante_grado)}` : ""} · ${escapeHtml(f.firmante_cargo)}<br><small class="muted">${fechaHoraFirma(f.firmado_at)}</small></span></div>`).join("")}</div>` : ""}
+      ${miFirma ? "" : `<form class="firma-form" data-id="${doc.id}" data-version="${doc.version}"><div class="grid-2"><label>Grado<input class="firma-grado" placeholder="Ej. Comandante PNP" /></label><label>Nombre y apellidos<input class="firma-nombre" required placeholder="Ej. Juan PEREZ LOPEZ" /></label></div><label>Cargo<input class="firma-cargo" required placeholder="Ej. Oficial de Permanencia" /></label><p class="firma-error error hidden" role="alert"></p><button type="submit" class="btn-primary">${iconoSvg("revisar", "button-icon")}Firmar constancia</button></form>`}
+      ${esAdmin ? `<button type="button" class="btn-secondary btn-editar-cumplimiento">Editar texto y crear nueva versión</button>` : ""}
+    </article>`;
+  }).join("");
+  contenedor.querySelectorAll(".firma-form").forEach((form) => form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = form.querySelector(".firma-error"); errorEl.classList.add("hidden");
+    const boton = form.querySelector("button[type=submit]");
+    ocuparBoton(boton, true, "Firmando...");
+    try {
+      await firmarDocumento(supabase, { documentoId: form.dataset.id, version: Number(form.dataset.version), firmanteId: state.session.user.id, grado: form.querySelector(".firma-grado").value.trim(), nombre: form.querySelector(".firma-nombre").value.trim(), cargo: form.querySelector(".firma-cargo").value.trim() });
+      await loadCumplimientoView();
+    } catch (error) { errorEl.textContent = "No se pudo registrar la firma: " + (error.message || error); errorEl.classList.remove("hidden"); ocuparBoton(boton, false); }
+  }));
+  contenedor.querySelectorAll(".btn-editar-cumplimiento").forEach((boton) => boton.addEventListener("click", async () => {
+    const doc = state.cumplimientoDocs.find((d) => d.id === boton.closest(".cumplimiento-card").dataset.id);
+    const contenido = prompt(`Editar política: ${doc.titulo}`, doc.contenido);
+    if (contenido === null || !contenido.trim() || contenido.trim() === doc.contenido) return;
+    ocuparBoton(boton, true, "Guardando...");
+    try { await actualizarContenidoDocumentoInstitucional(supabase, { id: doc.id, contenido: contenido.trim(), version: doc.version, userId: state.session.user.id }); await loadCumplimientoView(); }
+    catch (error) { alert("No se pudo actualizar: " + (error.message || error)); ocuparBoton(boton, false); }
+  }));
+}
 // ---------- Historial de actividad ----------
 async function loadHistorial() {
   const { data, error } = await supabase

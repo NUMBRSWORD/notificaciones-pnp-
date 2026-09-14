@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Sin dependencias que instalar: los paquetes del navegador (Supabase, docxtemplater, pdf.js, Chart.js, etc.) se cargan directo desde esm.sh en el código. Este package.json solo existe para 'npm test'.",
   "scripts": {
+    "check": "node scripts/check.mjs",
     "test": "node --test lib/*.test.js"
   }
 }

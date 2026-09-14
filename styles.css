@@ -681,3 +681,11 @@ tbody tr:last-child td { border-bottom: none; }
   .action-icon { flex-basis: 34px; width: 34px; height: 34px; }
   .mobile-app-panel.is-collapsed #btnMostrarPanelMovil { width: auto; min-height: 36px; padding: 6px 8px; }
 }
+/* Cumplimiento: lectura y firma de políticas internas. */
+.cumplimiento-card { display: grid; gap: 12px; }
+.firmas-lista { display: grid; gap: 8px; padding: 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); }
+.firma-item { display: flex; gap: 9px; align-items: flex-start; font-size: .86rem; }
+.firma-item .ui-icon { color: var(--accent); flex: 0 0 auto; margin-top: 2px; }
+.firma-form { display: grid; gap: 10px; padding-top: 4px; }
+#resumenMensualCard { margin: 18px 0; }
+#resumenMensualCard .pill { margin: 2px; }
