@@ -2054,8 +2054,8 @@ async function renderCasoDetail(caso) {
         <div class="detail-grid"><div class="detail-field"><div class="label">N.º de resolución</div><div class="value">${escapeHtml(caso.archivo_procedimiento_resolucion_numero || "-")}</div></div><div class="detail-field"><div class="label">Motivo</div><div class="value">${escapeHtml(caso.archivo_procedimiento_motivo || "-")}</div></div></div>
       ` : puedeArchivoProcedimiento ? `
         <p class="muted small">Úselo si, tras evaluar el descargo, concluye que el hecho no se adecúa a ningún código del Anexo I. Es una alternativa a la Orden de Sanción: al generarlo, el caso quedará cerrado sin sanción.</p>
+        <p class="muted small">${caso.archivo_procedimiento_resolucion_numero ? `Número reservado para este caso: <strong>${escapeHtml(caso.archivo_procedimiento_resolucion_numero)}</strong>. Se conservará en cada reintento.` : "El número de Archivo se asignará automáticamente y en orden correlativo al confirmar."}</p>
         <form id="archivoProcedimientoForm">
-          <label>N.º de resolución<input type="text" id="apResolucionNumero" required placeholder="Ej. N.º 001-2026-COMVENT-A" /></label>
           <label>Motivo del archivo<textarea id="apMotivo" rows="5" required placeholder="Explique por qué, luego de evaluar el descargo y los actuados, la conducta no se adecúa a ningún código del Anexo I."></textarea></label>
           <p id="archivoProcedimientoError" class="error hidden" role="alert"></p>
           <button type="submit" class="btn-primary">Guardar y descargar Archivo del Procedimiento</button>
@@ -2558,28 +2558,43 @@ async function submitSancion(e, caso) {
   }
 }
 
+async function reservarCorrelativoArchivoProcedimiento(casoId) {
+  const { data, error } = await supabase.rpc("reservar_correlativo_archivo_procedimiento", {
+    p_caso_id: casoId,
+    p_anio: new Date().getFullYear(),
+  });
+  if (error) throw new Error("No se pudo asignar el número correlativo: " + error.message);
+  const registro = Array.isArray(data) ? data[0] : data;
+  const correlativo = Number(registro?.correlativo);
+  const resolucionNumero = String(registro?.resolucion_numero || "").trim();
+  if (!Number.isInteger(correlativo) || correlativo < 1 || !resolucionNumero) {
+    throw new Error("Supabase no devolvió un número correlativo válido.");
+  }
+  return { correlativo, resolucionNumero };
+}
+
 async function submitArchivoProcedimiento(e, caso) {
   e.preventDefault();
   const errorEl = $("archivoProcedimientoError");
   errorEl.classList.add("hidden");
-  const resolucionNumero = $("apResolucionNumero").value.trim();
   const motivoTexto = $("apMotivo").value.trim();
-  if (!resolucionNumero || !motivoTexto) {
-    errorEl.textContent = "Complete el número de resolución y el motivo del archivo.";
+  if (!motivoTexto) {
+    errorEl.textContent = "Escriba el motivo del archivo.";
     errorEl.classList.remove("hidden");
     return;
   }
-  if (!confirm("¿Confirmar el Archivo del Procedimiento? El caso quedará cerrado sin sanción y ya no podrá generar una Orden de Sanción.")) return;
+  if (!confirm("¿Confirmar el Archivo del Procedimiento? Se asignará un número único, el caso quedará cerrado sin sanción y ya no podrá generar una Orden de Sanción.")) return;
   const boton = e.target.querySelector("button[type=submit]");
-  ocuparBoton(boton, true, "Generando...");
+  ocuparBoton(boton, true, "Asignando número...");
   try {
+    const { correlativo, resolucionNumero } = await reservarCorrelativoArchivoProcedimiento(caso.id);
+    ocuparBoton(boton, true, "Generando...");
     const blob = await renderizarArchivoProcedimientoDocx(caso, state.efectivos, { resolucionNumero, motivoTexto });
-    const nombre = nombreArchivoDocumento("ARCHIVO DEL PROCEDIMIENTO", caso);
+    const nombre = nombreArchivoDocumento(`ARCHIVO DEL PROCEDIMIENTO ${String(correlativo).padStart(3, "0")}`, caso);
     saveAs(blob, nombre);
     await registrarVersionDocumento(caso.id, "archivo_procedimiento", blob, nombre);
     const { error } = await supabase.from("casos").update({
       archivo_procedimiento_generado_at: new Date().toISOString(),
-      archivo_procedimiento_resolucion_numero: resolucionNumero,
       archivo_procedimiento_motivo: motivoTexto,
     }).eq("id", caso.id);
     if (error) throw new Error("El documento se descargó, pero no se pudo registrar el archivo: " + error.message);
