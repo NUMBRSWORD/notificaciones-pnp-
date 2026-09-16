@@ -5,6 +5,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SCHEMA, VAPID_PUBLIC_KEY } fr
 import { renderizarImputacionDocx, puedeGenerarImputacion, buscarOficialConstato, tokens, construirDatosImputacion } from "./lib/imputacion.js";
 import { renderizarActaNoDescargoDocx, puedeGenerarActaNoDescargo, plazoDescargoVencido, fechaLimiteDescargo, buscarInvestigado, construirDatosActaNoDescargo } from "./lib/actaNoDescargo.js";
 import { renderizarOrdenSancionDocx, puedeGenerarOrdenSancion, opcionesTercio, analisisSinDescargoDefault, construirDatosOrdenSancion } from "./lib/ordenSancion.js";
+import { renderizarArchivoProcedimientoDocx, puedeGenerarArchivoProcedimiento } from "./lib/archivoProcedimiento.js";
 import { getInfraccion, normalizarCodigoInfraccion, ANEXO_I } from "./lib/anexoI.js";
 import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva, subirArchivoDirectiva } from "./lib/directivas.js";
 import { listarDocumentosInstitucionales, listarFirmasDocumentos, firmarDocumento, actualizarContenidoDocumentoInstitucional } from "./lib/cumplimiento.js";
@@ -956,7 +957,7 @@ $("registroForm").addEventListener("submit", async (e) => {
 });
 
 // ---------- Casos ----------
-function casoConcluido(caso) { return Boolean(caso.orden_notificada_at); }
+function casoConcluido(caso) { return Boolean(caso.orden_notificada_at || caso.archivo_procedimiento_generado_at); }
 
 async function loadCasos() {
   const { data, error } = await supabase
@@ -1006,6 +1007,7 @@ function diasHastaFecha(fecha) {
 
   return (state.casos || []).flatMap((caso) => {
     const nombre = nombreInvestigadoVisible(caso, true) || "Caso sin nombre";
+    if (caso.archivo_procedimiento_generado_at) return [];
     if (caso.sancion_generada_at && !caso.orden_notificada_at) return [{ caso, nombre, prioridad: 0, tipo: "Cargar expediente firmado", detalle: "La Orden fue generada; corresponde subir el legajo completo firmado.", clase: "is-urgent" }];
     if (caso.imputacion_generada_at && !caso.fecha_descargo && !caso.sancion_generada_at && plazoDescargoVencido(caso)) {
       return [{ caso, nombre, prioridad: 1, tipo: "Plazo vencido", detalle: "Defina el siguiente trámite: acta de no descargo u orden de sanción.", clase: "is-urgent" }];
@@ -1092,7 +1094,7 @@ async function renderDocumentosGenerados() {
   const query = $("buscarDocumentos").value.trim().toLowerCase();
   const docs = documentosGenerados.filter((doc) => !query || `${doc.tipo || ""} ${doc.archivo_nombre || ""} ${doc.generado_por_email || ""}`.toLowerCase().includes(query));
   $("documentosEmpty").classList.toggle("hidden", docs.length > 0);
-  const etiquetas = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción" };
+  const etiquetas = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción", archivo_procedimiento: "Archivo del Procedimiento" };
   const filas = await Promise.all(docs.map(async (doc) => {
     const enlace = await fileLinkHtml("casos-imputacion-pnp", doc.archivo_path, doc.archivo_nombre);
     return `<article class="document-item"><div><span class="action-type">${escapeHtml(etiquetas[doc.tipo] || doc.tipo || "Documento")}</span><strong>${escapeHtml(doc.archivo_nombre || "Sin nombre")}</strong><span class="muted small">Generado ${formatFechaHora(String(doc.generado_at || "").slice(0, 10), String(doc.generado_at || "").slice(11, 16))} · ${escapeHtml(doc.generado_por_email || "-")}</span></div><div>${enlace}</div></article>`;
@@ -1570,6 +1572,7 @@ $("asistenteForm").addEventListener("submit", async (e) => {
 let chartsPanel = {};
 
 function estadoDeCaso(c) {
+  if (c.archivo_procedimiento_generado_at) return "Archivado sin sanción";
   if (casoConcluido(c)) return "Expediente firmado registrado";
   if (!c.imputacion_generada_at) return "Notificación pendiente";
   if (c.sancion_generada_at) return "Sanción generada";
@@ -1588,6 +1591,7 @@ function claseEstadoCaso(c) {
 }
 
 function progresoCasoHtml(c) {
+  if (c.archivo_procedimiento_generado_at) return `<div class="case-progress is-concluida" title="Archivado sin sanción"><div class="case-progress-steps"><span class="is-done">1</span><span class="is-done">2</span><span class="is-done">3</span></div><span class="pill pill-yes">✓ Archivado sin sanción</span></div>`;
   const concluido = casoConcluido(c);
   const paso = concluido ? 4 : c.sancion_generada_at ? 4 : c.fecha_descargo ? 3 : c.imputacion_generada_at ? 2 : 1;
   const etiquetas = ["Registro", "Imputación", "Descargo", "Sanción"];
@@ -1600,6 +1604,7 @@ function progresoCasoHtml(c) {
 // Una sola recomendación visible evita que el oficial tenga que interpretar
 // toda la ruta antes de saber qué acción corresponde realizar ahora.
 function siguienteAccionCasoHtml(caso, isAdmin) {
+  if (caso.archivo_procedimiento_generado_at) return `<aside class="next-action is-done" aria-label="Trámite concluido"><span class="next-action-icon">${iconoSvg("revisar")}</span><div><span class="eyebrow">Trámite concluido</span><strong>Archivo del Procedimiento</strong><p>El caso se cerró sin sanción mediante la resolución registrada.</p></div></aside>`;
   const hechoCompleto = Boolean(caso.fecha_hecho && caso.descripcion_hecho && getInfraccion(caso.codigo_infraccion));
   const imputacion = Boolean(caso.imputacion_generada_at);
   const plazoVencido = imputacion && !caso.fecha_descargo && plazoDescargoVencido(caso);
@@ -1649,6 +1654,7 @@ function cronologiaCasoHtml(caso) {
   const puedeEvaluar = imputacionNotificada && (Boolean(caso.fecha_descargo) || plazoVencido);
   const ordenGenerada = Boolean(caso.sancion_generada_at);
   const ordenNotificada = Boolean(caso.orden_notificada_at);
+  const archivado = Boolean(caso.archivo_procedimiento_generado_at);
   const fechaLimite = fechaLimiteDescargo(caso);
 
   const pasos = [
@@ -1669,16 +1675,16 @@ function cronologiaCasoHtml(caso) {
       detalle: !imputacionNotificada ? "Disponible después de la notificación" : caso.fecha_descargo ? `Recibido el ${formatDate(caso.fecha_descargo)}` : plazoVencido ? "Plazo vencido sin descargo" : `Plazo vigente hasta el ${formatDate(fechaLimite)}`,
     },
     {
-      titulo: "Evaluación", estado: !puedeEvaluar ? "no-disponible" : caso.sancion_analisis_texto ? "completo" : "pendiente",
-      detalle: !puedeEvaluar ? "Disponible al recibir el descargo o vencer el plazo" : caso.sancion_analisis_texto ? "Análisis y tercio registrados" : "Resuma el descargo y complete el análisis",
+      titulo: "Evaluación", estado: !puedeEvaluar ? "no-disponible" : (caso.sancion_analisis_texto || archivado) ? "completo" : "pendiente",
+      detalle: !puedeEvaluar ? "Disponible al recibir el descargo o vencer el plazo" : archivado ? "Descargo evaluado y procedimiento archivado" : caso.sancion_analisis_texto ? "Análisis y tercio registrados" : "Resuma el descargo y complete el análisis",
     },
     {
-      titulo: "Orden", estado: !puedeEvaluar ? "no-disponible" : ordenGenerada ? "completo" : "pendiente",
-      detalle: !puedeEvaluar ? "Disponible después de la evaluación" : ordenGenerada ? `Generada el ${formatDate(String(caso.sancion_generada_at).slice(0, 10))}` : "Pendiente de generar la orden",
+      titulo: "Orden", estado: !puedeEvaluar ? "no-disponible" : archivado ? "no-disponible" : ordenGenerada ? "completo" : "pendiente",
+      detalle: !puedeEvaluar ? "Disponible después de la evaluación" : archivado ? "No corresponde: caso archivado sin sanción" : ordenGenerada ? `Generada el ${formatDate(String(caso.sancion_generada_at).slice(0, 10))}` : "Pendiente de generar la orden",
     },
     {
-      titulo: "Cierre", estado: !ordenGenerada ? "no-disponible" : ordenNotificada ? "completo" : "pendiente",
-      detalle: !ordenGenerada ? "Disponible después de generar la orden" : ordenNotificada ? `Orden notificada el ${formatDate(String(caso.orden_notificada_at).slice(0, 10))}` : "Registre la notificación de la orden",
+      titulo: "Cierre", estado: archivado ? "completo" : !ordenGenerada ? "no-disponible" : ordenNotificada ? "completo" : "pendiente",
+      detalle: archivado ? `Archivo generado el ${formatDate(String(caso.archivo_procedimiento_generado_at).slice(0, 10))}` : !ordenGenerada ? "Disponible después de generar la orden" : ordenNotificada ? `Orden notificada el ${formatDate(String(caso.orden_notificada_at).slice(0, 10))}` : "Registre la notificación de la orden",
     },
   ];
   const etiquetas = { completo: "Completo", pendiente: "Pendiente", vencido: "Vencido", "no-disponible": "No disponible" };
@@ -1892,6 +1898,7 @@ async function renderCasoDetail(caso) {
   const plazoVencido = plazoDescargoVencido(caso);
   const fechaLimite = fechaLimiteDescargo(caso);
   const puedeSancion = puedeGenerarOrdenSancion(caso, state.efectivos);
+  const puedeArchivoProcedimiento = puedeGenerarArchivoProcedimiento(caso, state.efectivos);
   const opcionesSancion = opcionesTercio(caso.codigo_infraccion) || [];
   const borradorSancion = leerBorradorSancion(caso.id);
   const tercioSancionInicial = borradorSancion?.tercioValue || caso.sancion_tercio_label || "";
@@ -1903,7 +1910,7 @@ async function renderCasoDetail(caso) {
     .select("*")
     .eq("caso_id", caso.id)
     .order("generado_at", { ascending: false });
-  const TIPO_DOCUMENTO_LABEL = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción" };
+  const TIPO_DOCUMENTO_LABEL = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción", archivo_procedimiento: "Archivo del Procedimiento" };
   const versionesHtml = versionesDocs?.length
     ? (await Promise.all(versionesDocs.map(async (v) => {
         const link = await fileLinkHtml("casos-imputacion-pnp", v.archivo_path, v.archivo_nombre);
@@ -2006,7 +2013,7 @@ async function renderCasoDetail(caso) {
       `}
     </div>
 
-    ${puedeGestionar && (caso.fecha_descargo || plazoVencido) ? `
+    ${puedeGestionar && (caso.fecha_descargo || plazoVencido) && !caso.archivo_procedimiento_generado_at ? `
     <div class="detail-card">
       <h3>Orden de Sanción</h3>
       ${puedeSancion ? `
@@ -2039,6 +2046,23 @@ async function renderCasoDetail(caso) {
     </div>
     ` : ""}
 
+    ${puedeGestionar && caso.fecha_descargo && !caso.sancion_generada_at ? `
+    <div class="detail-card">
+      <h3>Archivo del Procedimiento (sin sanción)</h3>
+      ${caso.archivo_procedimiento_generado_at ? `
+        <p class="success-message">✓ Caso archivado sin sanción el ${formatDate(String(caso.archivo_procedimiento_generado_at).slice(0, 10))}.</p>
+        <div class="detail-grid"><div class="detail-field"><div class="label">N.º de resolución</div><div class="value">${escapeHtml(caso.archivo_procedimiento_resolucion_numero || "-")}</div></div><div class="detail-field"><div class="label">Motivo</div><div class="value">${escapeHtml(caso.archivo_procedimiento_motivo || "-")}</div></div></div>
+      ` : puedeArchivoProcedimiento ? `
+        <p class="muted small">Úselo si, tras evaluar el descargo, concluye que el hecho no se adecúa a ningún código del Anexo I. Es una alternativa a la Orden de Sanción: al generarlo, el caso quedará cerrado sin sanción.</p>
+        <form id="archivoProcedimientoForm">
+          <label>N.º de resolución<input type="text" id="apResolucionNumero" required placeholder="Ej. N.º 001-2026-COMVENT-A" /></label>
+          <label>Motivo del archivo<textarea id="apMotivo" rows="5" required placeholder="Explique por qué, luego de evaluar el descargo y los actuados, la conducta no se adecúa a ningún código del Anexo I."></textarea></label>
+          <p id="archivoProcedimientoError" class="error hidden" role="alert"></p>
+          <button type="submit" class="btn-primary">Guardar y descargar Archivo del Procedimiento</button>
+        </form>
+      ` : `<p class="muted small">Para archivarlo, registre el descargo y verifique que el oficial que constató esté en Efectivos.</p>`}
+    </div>
+    ` : ""}
     ${puedeGestionar && caso.sancion_generada_at ? `
     <div class="detail-card">
       <h3>Cargo del expediente firmado</h3>
@@ -2105,6 +2129,7 @@ async function renderCasoDetail(caso) {
   $("notificacionForm")?.addEventListener("submit", (e) => submitNotificacion(e, caso.id));
   $("descargoForm")?.addEventListener("submit", (e) => submitDescargo(e, caso.id));
   $("sancionForm")?.addEventListener("submit", (e) => submitSancion(e, caso));
+  $("archivoProcedimientoForm")?.addEventListener("submit", (e) => submitArchivoProcedimiento(e, caso));
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
   $("btnVerificarNotifIA")?.addEventListener("click", () => verificarNotificacionOrdenIA(caso));
   $("ordenNotifForm")?.addEventListener("submit", (e) => submitNotificacionOrden(e, caso));
@@ -2533,6 +2558,41 @@ async function submitSancion(e, caso) {
   }
 }
 
+async function submitArchivoProcedimiento(e, caso) {
+  e.preventDefault();
+  const errorEl = $("archivoProcedimientoError");
+  errorEl.classList.add("hidden");
+  const resolucionNumero = $("apResolucionNumero").value.trim();
+  const motivoTexto = $("apMotivo").value.trim();
+  if (!resolucionNumero || !motivoTexto) {
+    errorEl.textContent = "Complete el número de resolución y el motivo del archivo.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  if (!confirm("¿Confirmar el Archivo del Procedimiento? El caso quedará cerrado sin sanción y ya no podrá generar una Orden de Sanción.")) return;
+  const boton = e.target.querySelector("button[type=submit]");
+  ocuparBoton(boton, true, "Generando...");
+  try {
+    const blob = await renderizarArchivoProcedimientoDocx(caso, state.efectivos, { resolucionNumero, motivoTexto });
+    const nombre = nombreArchivoDocumento("ARCHIVO DEL PROCEDIMIENTO", caso);
+    saveAs(blob, nombre);
+    await registrarVersionDocumento(caso.id, "archivo_procedimiento", blob, nombre);
+    const { error } = await supabase.from("casos").update({
+      archivo_procedimiento_generado_at: new Date().toISOString(),
+      archivo_procedimiento_resolucion_numero: resolucionNumero,
+      archivo_procedimiento_motivo: motivoTexto,
+    }).eq("id", caso.id);
+    if (error) throw new Error("El documento se descargó, pero no se pudo registrar el archivo: " + error.message);
+    await loadCasos();
+    await openCasoDetail(caso.id);
+  } catch (error) {
+    console.error(error);
+    errorEl.textContent = error.message || "No se pudo generar el Archivo del Procedimiento.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    ocuparBoton(boton, false);
+  }
+}
 async function eliminarCaso(id) {
   if (!confirm("¿Eliminar este caso? Esta acción no se puede deshacer.")) return;
   const { error } = await supabase.from("casos").delete().eq("id", id);
