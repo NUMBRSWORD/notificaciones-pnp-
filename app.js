@@ -10,7 +10,7 @@ import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva
 import { listarDocumentosInstitucionales, listarFirmasDocumentos, firmarDocumento, actualizarContenidoDocumentoInstitucional } from "./lib/cumplimiento.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
-import { nombreCompletoVisible, cipDelEfectivoBuscado } from "./lib/utils.js";
+import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda } from "./lib/utils.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -2771,30 +2771,34 @@ $("btnBuscarEfectivo").addEventListener("click", async () => {
   if (!q) return;
   // 1.º en la lista ya cargada: el administrador tiene el padrón completo.
   let found = state.efectivos.find((ef) => ef.cip === q || ef.dni === q);
-  let fallo = false;
+  let fallo = null;
   // 2.º un oficial solo recibe su propia ficha y la de los investigados de sus
   // casos (el padrón completo trae el DNI de todo el personal), así que antes
   // decía "no se encontró" para cualquiera que no fuera él mismo. Si no está en
   // la lista se consulta al servidor por ese CIP/DNI EXACTO (una sola persona).
-  if (!found) {
+  // El administrador no lo necesita: su lista YA es el padrón completo, y si ahí
+  // no está, de verdad no existe.
+  if (!found && state.role !== "admin") {
     const btn = $("btnBuscarEfectivo");
     ocuparBoton(btn, true, "Buscando...");
     try {
       const { data, error } = await supabase.rpc("buscar_efectivo", { p_q: q });
-      if (error) { console.warn("buscar_efectivo:", error.message); fallo = true; }
+      if (error) { console.warn("buscar_efectivo:", error.message); fallo = tipoFalloBusqueda(error); }
       else found = Array.isArray(data) ? data[0] : data;
     } catch (err) {
       console.warn("buscar_efectivo:", err);
-      fallo = true;
+      fallo = "error";
     } finally {
       ocuparBoton(btn, false);
     }
   }
   if (!found) {
     state.efectivoBuscado = null;
-    resultEl.textContent = fallo
-      ? "No se pudo consultar el padrón en este momento. Intente de nuevo o avise al administrador."
-      : "No se encontró ningún efectivo con ese CIP/DNI.";
+    resultEl.textContent = fallo === "sin_funcion"
+      ? "La búsqueda de efectivos todavía no está activada en el servidor. Avise al administrador: falta ejecutar busqueda_efectivos_oficiales.sql en Supabase."
+      : fallo
+        ? "No se pudo consultar el padrón en este momento. Intente de nuevo o avise al administrador."
+        : "No se encontró ningún efectivo con ese CIP/DNI.";
     resultEl.classList.remove("hidden");
     return;
   }
