@@ -10,7 +10,7 @@ import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva
 import { listarDocumentosInstitucionales, listarFirmasDocumentos, firmarDocumento, actualizarContenidoDocumentoInstitucional } from "./lib/cumplimiento.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
-import { nombreCompletoVisible } from "./lib/utils.js";
+import { nombreCompletoVisible, cipDelEfectivoBuscado } from "./lib/utils.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -137,6 +137,7 @@ const state = {
   cip: null,
   casos: [],
   efectivos: [],
+  efectivoBuscado: null, // última persona hallada con "Buscar efectivo por CIP o DNI"
   directivas: [],
   expedientesRemitidos: [],
   rolesServicio: [],
@@ -2726,6 +2727,7 @@ $("efectivoForm").addEventListener("submit", async (e) => {
 // ---------- Nuevo caso modal ----------
 function abrirModalNuevoCaso() {
   $("casoForm").reset();
+  state.efectivoBuscado = null;
   $("fUnidad").value = "DIVOPUS 3-CPNP VENTANILLA.";
   $("fOficialCargo").value = "OFICIAL DE PERMANENCIA";
   $("lookupResult").classList.add("hidden");
@@ -2763,16 +2765,40 @@ function splitApellidosNombres(full) {
   return { apellidos: words.slice(0, 2).join(" "), nombres: words.slice(2).join(" ") };
 }
 
-$("btnBuscarEfectivo").addEventListener("click", () => {
+$("btnBuscarEfectivo").addEventListener("click", async () => {
   const q = $("lookupCipDni").value.trim();
   const resultEl = $("lookupResult");
   if (!q) return;
-  const found = state.efectivos.find((ef) => ef.cip === q || ef.dni === q);
+  // 1.º en la lista ya cargada: el administrador tiene el padrón completo.
+  let found = state.efectivos.find((ef) => ef.cip === q || ef.dni === q);
+  let fallo = false;
+  // 2.º un oficial solo recibe su propia ficha y la de los investigados de sus
+  // casos (el padrón completo trae el DNI de todo el personal), así que antes
+  // decía "no se encontró" para cualquiera que no fuera él mismo. Si no está en
+  // la lista se consulta al servidor por ese CIP/DNI EXACTO (una sola persona).
   if (!found) {
-    resultEl.textContent = "No se encontró ningún efectivo con ese CIP/DNI.";
+    const btn = $("btnBuscarEfectivo");
+    ocuparBoton(btn, true, "Buscando...");
+    try {
+      const { data, error } = await supabase.rpc("buscar_efectivo", { p_q: q });
+      if (error) { console.warn("buscar_efectivo:", error.message); fallo = true; }
+      else found = Array.isArray(data) ? data[0] : data;
+    } catch (err) {
+      console.warn("buscar_efectivo:", err);
+      fallo = true;
+    } finally {
+      ocuparBoton(btn, false);
+    }
+  }
+  if (!found) {
+    state.efectivoBuscado = null;
+    resultEl.textContent = fallo
+      ? "No se pudo consultar el padrón en este momento. Intente de nuevo o avise al administrador."
+      : "No se encontró ningún efectivo con ese CIP/DNI.";
     resultEl.classList.remove("hidden");
     return;
   }
+  state.efectivoBuscado = found;
   $("fGrado").value = found.grado || "";
   // La mayoría de los efectivos NO tienen coma en apellidos_nombres (solo los
   // oficiales, p.ej. "SOLIS GONZALES,MANUEL ANGELO") -- para el resto (p.ej.
@@ -2811,7 +2837,12 @@ $("casoForm").addEventListener("submit", async (e) => {
     // Igual que en moral-y-disciplina: la política de RLS usa este CIP para
     // decidir qué casos puede ver cada oficial, no solo el admin.
     oficial_constato_cip: buscarOficialConstato(oficialConstatoTexto, state.efectivos)?.cip || null,
-    investigado_cip: buscarInvestigado($("fApellidos").value.trim(), $("fNombres").value.trim(), state.efectivos)?.cip || null,
+    // Un oficial no tiene al investigado en `state.efectivos`: si lo halló con
+    // "Buscar por CIP o DNI", se toma el CIP de esa búsqueda (si el nombre sigue
+    // siendo el suyo). Sin este dato las alertas y los documentos del caso fallan.
+    investigado_cip: buscarInvestigado($("fApellidos").value.trim(), $("fNombres").value.trim(), state.efectivos)?.cip
+      || cipDelEfectivoBuscado($("fApellidos").value.trim(), $("fNombres").value.trim(), state.efectivoBuscado)
+      || null,
     puesto_rol: $("fPuestoRol")?.value.trim() || null,
   };
 
