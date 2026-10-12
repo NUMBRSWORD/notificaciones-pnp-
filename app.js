@@ -2815,7 +2815,11 @@ async function reservarCorrelativoArchivoProcedimiento(casoId) {
     p_caso_id: casoId,
     p_anio: Number(hoyLima().slice(0, 4)),
   });
-  if (error) throw new Error("No se pudo asignar el número correlativo: " + error.message);
+  if (error) {
+    throw new Error(tipoFalloBusqueda(error) === "sin_funcion"
+      ? "El Archivo del Procedimiento aún no está activado en el servidor: falta ejecutar archivo_procedimiento.sql en Supabase."
+      : "No se pudo asignar el número correlativo: " + error.message);
+  }
   const registro = Array.isArray(data) ? data[0] : data;
   const correlativo = Number(registro?.correlativo);
   const resolucionNumero = String(registro?.resolucion_numero || "").trim();
