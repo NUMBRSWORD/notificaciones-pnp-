@@ -16,6 +16,7 @@ import { datosDelOficio, faltaParaElOficio, renderizarOficioRemisionDocx } from 
 import { fechaLima, horaLima, hoyLima } from "./lib/fechas.js";
 import { esClaveInicial, validarClaveNueva } from "./lib/acceso.js";
 import { normalizarError, crearLimitador, sinParametros } from "./lib/errores.js";
+import { restaurarNombres, seudonimizarInvestigados } from "./lib/privacidad.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -1705,13 +1706,16 @@ async function generarResumenEjecutivo() {
   statusEl.classList.remove("hidden");
   ocuparBoton(btn, true, "Generando...");
   try {
-    const casos = construirResumenEstadoCasos();
+    // La IA no necesita los nombres para redactar: cada investigado va como
+    // "E01", "E02"… y los nombres se vuelven a poner solo en este navegador
+    // (Ley 29733, minimización y transferencia fuera del país).
+    const { casos, mapa: nombresPorAlias } = seudonimizarInvestigados(construirResumenEstadoCasos());
     const { data, error } = await supabase.functions.invoke("generar-resumen-casos", {
       body: { fechaHoy: hoyLima(), casos },
     });
     if (error) throw error;
     if (data?.error) throw new Error(data.error);
-    contenidoEl.textContent = data?.resumen || "No se pudo generar el resumen.";
+    contenidoEl.textContent = data?.resumen ? restaurarNombres(data.resumen, nombresPorAlias) : "No se pudo generar el resumen.";
     statusEl.classList.add("hidden");
   } catch (err) {
     console.error(err);

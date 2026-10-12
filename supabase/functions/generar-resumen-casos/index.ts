@@ -29,7 +29,7 @@ Redacta un resumen ejecutivo en español, en prosa clara (puedes usar un par de 
 2. Alertas priorizadas: casos cuyo plazo de descargo está vencido y todavía no tienen Acta de No Descargo ni Orden de Sanción (son los que requieren acción más urgente), y casos con Orden de Sanción generada pero aún no notificada.
 3. Un cierre breve si todo está al día.
 
-No inventes datos que no estén en la lista dada. Sé conciso y útil, como si fuera el resumen que un asistente personal le entrega cada mañana.
+Cada investigado viene identificado con un alias (E01, E02…): menciónalo exactamente con ese alias, sin inventar nombres. No inventes datos que no estén en la lista dada. Sé conciso y útil, como si fuera el resumen que un asistente personal le entrega cada mañana.
 
 Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con exactamente esta clave: {"resumen": "..."}`;
 
