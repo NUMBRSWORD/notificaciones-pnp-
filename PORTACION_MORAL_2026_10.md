@@ -19,6 +19,7 @@ apaga sola y dice qué falta. Lo que sigue activa todo.
 | El administrador restablece la clave de quien la olvidó (Efectivos → Restablecer clave) | `app.js` | `seguridad_claves.sql` |
 | **Hueco de seguridad cerrado**: con el registro abierto, una cuenta `337xxx@otro-dominio` veía y editaba los casos del oficial con ese CIP | `seguridad_claves.sql` | Sí |
 | Quitar un descargo registrado por error | `app.js` | No |
+| **Rol de servicio** como en moral: la IA conoce el formato del rol de Ventanilla (antes devolvía puestos equivocados), avisa si figura en FALTOS, DESCANSO MÉDICO, VACACIONES, etc., avisa si no hay rol guardado para la fecha, el puesto se corrige en el detalle del caso y los documentos dicen «se encontraba nombrado según el rol de servicio… en el servicio de…» | `lib/utils.js`, `supabase/functions/extraer-puesto-rol` | Volver a desplegar `extraer-puesto-rol` |
 | Las 7 funciones de IA exigen sesión iniciada (antes bastaba la clave pública) | `supabase/functions/*` | Volver a desplegarlas |
 | Resumen ejecutivo IA sin nombres reales (E01, E02…) | `lib/privacidad.js` | No (opcional: redesplegar `generar-resumen-casos`) |
 | Registro de errores del navegador, visible en Historial | `lib/errores.js` | `registro_de_errores.sql` |
@@ -48,7 +49,7 @@ Functions**, abra cada una, reemplace el código por el del repositorio y pulse
 
 `analizar-descargo-sancion`, `asistente-normativa`, `extraer-texto-vision`,
 `generar-resumen-casos`, `redactar-hecho-imputacion`, `revisar-documento-ia`,
-`sugerir-codigo-infraccion`.
+`sugerir-codigo-infraccion` y **`extraer-puesto-rol`** (lectura del rol de servicio).
 
 Comprobación: con la sesión iniciada en la app, use «Sugerir código con IA»;
 debe responder. Sin sesión, la función responde *401 Debe iniciar sesión*.
@@ -82,6 +83,6 @@ debe responder. Sin sesión, la función responde *401 Debe iniciar sesión*.
 
 ```
 npm ci
-npm test          # 120 pruebas: lógica, fechas, Anexo I, oficio, CSP
+npm test          # 123 pruebas: lógica, fechas, Anexo I, oficio, CSP
 npm run test:db   # PostgreSQL aislado (PGlite) para los 4 .sql nuevos
 ```

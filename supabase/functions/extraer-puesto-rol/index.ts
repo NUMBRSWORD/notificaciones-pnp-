@@ -22,7 +22,28 @@ async function sesionAutenticada(req: Request) {
   return respuesta.ok;
 }
 
-const SYSTEM = `Lee un rol de servicio de la PNP y ubica a la persona indicada. No inventes datos. Responde SOLO JSON válido con estas claves exactas: {"encontrado":boolean,"puesto":string|null,"fecha_rol_inicio":"YYYY-MM-DD"|null,"fecha_rol_fin":"YYYY-MM-DD"|null,"situacion":"normal"|"falto"|"descanso_medico"|"vacaciones"|"permiso"|"franco"|"suspension"|null,"detalle_novedad":string|null}. El puesto debe ser breve y conservar la denominación que aparece en el rol. Si la persona no aparece, encontrado es false y puesto es null.`;
+// Mismo criterio que la lectura del rol en moral-y-disciplina
+// (extraer-nota-informativa, tipo "rol_servicio"). La versión anterior era una
+// sola línea genérica: la IA no sabía cómo es el rol de Ventanilla, confundía
+// filas, tomaba puestos de otra persona y no distinguía la sección NOVEDADES.
+const SYSTEM = `Eres un asistente que lee el ROL DE SERVICIO DIARIO de la Comisaría PNP Ventanilla (REGPOL Callao). Es una tabla larga con columnas: N° | GRADO | PNP | "APELLIDOS Nombres" | PUESTO O SERVICIO ASIGNADO | (a veces) SECTOR o DETALLE. Tiene encabezados de sección que agrupan al personal (servicio 24x24, patrullaje motorizado con placa y CONDUCTOR/OPERADOR, administrativo, secciones FAMILIA/INVESTIGACIÓN, apoyo DIROES) y al final una sección de NOVEDADES con subgrupos: "PERSONAL PNP FALTOS AL SERVICIO", "PERSONAL PNP CON DESCANSO MEDICO", "OTROS" (FRANCO, PERMISO A CUENTA DE VACACIONES, LICENCIAS, VACACIONES, SUSPENSIÓN TEMPORAL DEL SERVICIO, PERMISO POR ONOMÁSTICO, etc.). El texto viene de un PDF y puede tener ruido de OCR.
+
+EN EL ENCABEZADO el rol indica el periodo que cubre, por ejemplo "DEL 10SET26 AL 11SET26 (07:00 A 07:00 HRS.)" (servicio de 24 horas que ARRANCA el 10). Extrae ese periodo.
+
+Se te da el nombre de un efectivo (apellidos y nombres, puede venir sin coma) y la fecha del hecho. Busca a esa persona por sus APELLIDOS (tolera OCR y tildes); si hay dos personas con los mismos apellidos, usa los nombres para elegir. El puesto debe salir de la MISMA FILA de esa persona, nunca de la fila de al lado. Devuelve SOLO este JSON:
+
+- "fecha_rol_inicio": fecha de inicio del periodo del rol en "YYYY-MM-DD" (de "DEL 10SET26..." => "2026-09-10"). null si no aparece.
+- "fecha_rol_fin": fecha de fin del periodo en "YYYY-MM-DD". null si no aparece o es el mismo día.
+- "encontrado": true si ubicaste a la persona en este rol, false si no.
+- "puesto": frase corta EN MAYÚSCULAS con el servicio/puesto asignado tal como figura en su fila, uniendo puesto + sector/detalle si lo hay (ej. "OFICIAL DE PATRULLAJE SECTOR: 3 Y 5", "PATRULLAJE MOTORIZADO PAT. TMP-3096 - CONDUCTOR", "SECCION DE FAMILIA", "PERSONAL DE APOYO DIROES PNP"). null si la persona está en NOVEDADES sin puesto de servicio, o no se encontró.
+- "situacion": según la sección bajo la que aparece: "servicio" | "falto" | "descanso_medico" | "vacaciones" | "permiso" | "franco" | "suspension" | "otro". null si no se encontró.
+- "detalle_novedad": si la situación NO es "servicio", copia el texto de la novedad tal como figura (ej. "CINCO (05) DIAS DEL 08SET2026 AL 13SET2026 VACACIONES PERSONAL DIROES"). null en otro caso.
+
+IMPORTANTE: este rol vale SOLO para el periodo de su encabezado. NO deduzcas la situación de la persona para otra fecha distinta. Reporta lo que dice ESTE rol; el cliente comparará las fechas.
+
+No inventes. Si la persona no aparece, {"encontrado": false, "puesto": null, "situacion": null, "detalle_novedad": null} (igual con fecha_rol_inicio/fin si se leen).
+
+Responde ÚNICAMENTE con ese objeto JSON, sin texto antes ni después.`;
 
 Deno.serve(async (req) => {
   const headers = cors(req);
@@ -35,7 +56,7 @@ Deno.serve(async (req) => {
     const respuesta = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 900, system: SYSTEM, messages: [{ role: "user", content: `Fecha que se busca: ${fecha}\nPersona: ${persona}\n\nROL DE SERVICIO:\n${String(texto).slice(0, 120000)}` }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 1500, system: SYSTEM, messages: [{ role: "user", content: `Fecha del hecho: ${fecha}\nEfectivo a ubicar: ${persona}\n\nTEXTO DEL ROL DE SERVICIO:\n${String(texto).slice(0, 120000)}` }] }),
     });
     if (!respuesta.ok) return new Response(JSON.stringify({ error: "La IA no pudo procesar el rol." }), { status: 502, headers: { ...headers, "Content-Type": "application/json" } });
     const data = await respuesta.json();

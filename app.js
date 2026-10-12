@@ -2177,6 +2177,18 @@ async function renderCasoDetail(caso) {
         <div class="detail-field"><div class="label">Código de infracción</div><div class="value">${escapeHtml(caso.codigo_infraccion || "-")}${infraccion ? ` — ${escapeHtml(infraccion.bienJuridico)}` : ""}</div></div>
         <div class="detail-field"><div class="label">Oficial que constató</div><div class="value">${escapeHtml(caso.oficial_constato || "-")}</div></div>
         <div class="detail-field"><div class="label">Cargo para el sello</div><div class="value">${escapeHtml(caso.oficial_cargo || "OFICIAL DE PERMANENCIA")}</div></div>
+        <div class="detail-field">
+          <div class="label">Puesto / servicio según el rol</div>
+          <div class="value">
+            ${puedeGestionar && !caso.sancion_generada_at && !caso.archivo_procedimiento_generado_at ? `
+              <form id="puestoRolForm" class="inline-edit">
+                <input type="text" id="fPuestoRolEdit" value="${escapeHtml(caso.puesto_rol || "")}" placeholder="Sin registrar" />
+                <button type="submit" class="btn-secondary">Guardar</button>
+              </form>
+              <p id="puestoRolMsg" class="error small hidden" role="alert"></p>
+            ` : escapeHtml(caso.puesto_rol || "-")}
+          </div>
+        </div>
         <div class="detail-field"><div class="label">Unidad / Sub-unidad</div><div class="value">${escapeHtml(caso.unidad_investigado || "-")}</div></div>
         <div class="detail-field"><div class="label">Archivo de sustento</div><div class="value">${sustentoArchivo}</div></div>
         <div class="detail-field">
@@ -2350,6 +2362,7 @@ async function renderCasoDetail(caso) {
   $("notificacionForm")?.addEventListener("submit", (e) => submitNotificacion(e, caso.id));
   $("descargoForm")?.addEventListener("submit", (e) => submitDescargo(e, caso.id));
   $("btnQuitarDescargo")?.addEventListener("click", (e) => quitarDescargo(caso, e.currentTarget));
+  $("puestoRolForm")?.addEventListener("submit", (e) => submitPuestoRol(e, caso.id));
   $("sancionForm")?.addEventListener("submit", (e) => submitSancion(e, caso));
   $("archivoProcedimientoForm")?.addEventListener("submit", (e) => submitArchivoProcedimiento(e, caso));
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
@@ -2449,6 +2462,24 @@ async function submitDescargo(e, casoId) {
 
   if (error) { errEl.textContent = "Error: " + error.message; errEl.classList.remove("hidden"); return; }
   openCasoDetail(casoId);
+}
+
+// Corrige el puesto del rol después de crear el caso (la IA pudo equivocarse o
+// el rol se cargó después). Va a la Imputación y a la Orden que se generen luego.
+async function submitPuestoRol(e, casoId) {
+  e.preventDefault();
+  const msgEl = $("puestoRolMsg");
+  msgEl.classList.add("hidden");
+  const puesto_rol = $("fPuestoRolEdit").value.replace(/\s+/g, " ").trim() || null;
+  const boton = e.target.querySelector("button[type=submit]");
+  ocuparBoton(boton, true, "Guardando...");
+  try {
+    const { error } = await supabase.from("casos").update({ puesto_rol }).eq("id", casoId);
+    if (error) { msgEl.textContent = "Error: " + error.message; msgEl.classList.remove("hidden"); return; }
+    await openCasoDetail(casoId);
+  } finally {
+    ocuparBoton(boton, false);
+  }
 }
 
 // Para un descargo registrado por error (otra persona, fecha equivocada). El
@@ -3090,24 +3121,44 @@ async function extraerPuestoRolIA(texto, persona, fecha) {
   return data;
 }
 
+// Avisos según la sección del rol en la que figura la persona (los mismos de
+// moral-y-disciplina): si no estaba de servicio, quizá no corresponde imputar.
+const AVISOS_SITUACION_ROL = {
+  falto: "⚠ Figura en «FALTOS AL SERVICIO» del rol.",
+  descanso_medico: "⚠ Figura con DESCANSO MÉDICO — ¿corresponde imputar?",
+  vacaciones: "⚠ Figura de VACACIONES — la ausencia podría estar justificada.",
+  permiso: "⚠ Figura con PERMISO — la ausencia podría estar justificada.",
+  franco: "⚠ Figura de FRANCO ese día.",
+  suspension: "⚠ Figura con SUSPENSIÓN TEMPORAL DEL SERVICIO.",
+  otro: "⚠ Figura en las NOVEDADES del rol, sin puesto de servicio.",
+};
+
 function aplicarPuestoRol(resultado, fecha) {
   const estado = $("rolAutoStatus");
-  const inicio = resultado?.fecha_rol_inicio;
+  const inicio = resultado?.fecha_rol_inicio || null;
   const fin = resultado?.fecha_rol_fin || inicio;
   estado.classList.remove("hidden");
   if (inicio && (fecha < inicio || fecha > fin)) {
     $("fPuestoRol").value = "";
-    estado.textContent = `⚠ El archivo corresponde al ${formatDate(inicio)}${fin && fin !== inicio ? ` al ${formatDate(fin)}` : ""}, no a la fecha del hecho.`;
+    const rango = fin && fin !== inicio ? `${formatDate(inicio)} a ${formatDate(fin)}` : formatDate(inicio);
+    estado.textContent = `⚠ Ese rol es del ${rango} y el hecho es del ${formatDate(fecha)}. Use el rol de servicio de ese día.`;
     return;
   }
-  if (resultado?.puesto) {
+  const situacion = resultado?.situacion;
+  const deServicio = !situacion || situacion === "servicio" || situacion === "normal";
+  if (resultado?.puesto && deServicio) {
     $("fPuestoRol").value = resultado.puesto;
-    estado.textContent = `✓ Puesto identificado: ${resultado.puesto}. Verifíquelo antes de guardar.`;
-  } else if (resultado?.situacion && resultado.situacion !== "normal") {
+    estado.textContent = `✓ Puesto detectado (rol del ${formatDate(inicio || fecha)}): ${resultado.puesto}. Verifíquelo antes de guardar.`;
+  } else if (resultado?.encontrado && !deServicio) {
     $("fPuestoRol").value = "";
-    estado.textContent = `⚠ Situación detectada en el rol: ${resultado.situacion.replaceAll("_", " ")}. ${resultado.detalle_novedad || "Verifique antes de continuar."}`;
+    const aviso = AVISOS_SITUACION_ROL[situacion] || AVISOS_SITUACION_ROL.otro;
+    estado.textContent = `${aviso}${resultado.detalle_novedad ? ` (${resultado.detalle_novedad})` : ""}`;
+  } else if (resultado?.puesto) {
+    $("fPuestoRol").value = resultado.puesto;
+    estado.textContent = `✓ Puesto detectado: ${resultado.puesto}. Verifíquelo antes de guardar.`;
   } else {
-    estado.textContent = "No se ubicó el puesto en el rol. Puede completarlo manualmente.";
+    $("fPuestoRol").value = "";
+    estado.textContent = "No se ubicó a esta persona en el rol de ese día. Escriba el puesto a mano si corresponde.";
   }
 }
 
@@ -3117,8 +3168,13 @@ async function resolverPuestoDesdeRolGuardado() {
   const persona = `${$("fApellidos")?.value.trim() || ""} ${$("fNombres")?.value.trim() || ""}`.trim();
   if (!fecha || !persona) return;
   const rol = rolGuardadoParaFecha(fecha);
-  if (!rol?.texto_extraido) return;
   const estado = $("rolAutoStatus");
+  if (!rol) {
+    estado.classList.remove("hidden");
+    estado.textContent = `No hay rol de servicio guardado para el ${formatDate(fecha)}. Pida que lo suban en la pestaña «Roles» o adjunte aquí el de ese día.`;
+    return;
+  }
+  if (!rol.texto_extraido) return;
   estado.classList.remove("hidden");
   estado.textContent = "Buscando el puesto en el rol guardado...";
   try { aplicarPuestoRol(await extraerPuestoRolIA(rol.texto_extraido, persona, fecha), fecha); }
@@ -3158,13 +3214,20 @@ $("rolForm")?.addEventListener("submit", async (e) => {
   try {
     const texto = file.type === "application/pdf" ? await extractPdfText(file, (m) => { status.textContent = m; }) : await extractImagenTextoConOcr(file, (m) => { status.textContent = m; });
     let fechaFin = null;
-    try { fechaFin = (await extraerPuestoRolIA(texto, "verificación de fecha", fecha))?.fecha_rol_fin || null; } catch (_) { /* el rol se guarda aun si falla la lectura IA */ }
+    let avisoFecha = "";
+    try {
+      const meta = await extraerPuestoRolIA(texto, "(verificación de fecha)", fecha);
+      fechaFin = meta?.fecha_rol_fin || null;
+      if (meta?.fecha_rol_inicio && meta.fecha_rol_inicio !== fecha) {
+        avisoFecha = ` ⚠ El encabezado del rol dice ${formatDate(meta.fecha_rol_inicio)}, pero se guardó con la fecha elegida (${formatDate(fecha)}). Si no coincide, elimínelo y súbalo con la fecha correcta.`;
+      }
+    } catch (_) { /* el rol se guarda aun si falla la lectura IA */ }
     const path = `roles_servicio/${fecha}_${Date.now()}_${segmentoRuta(file.name, "rol.pdf")}`;
     const { error: uploadError } = await supabase.storage.from("casos-imputacion-pnp").upload(path, file);
     if (uploadError) throw uploadError;
     const { error } = await supabase.from("roles_servicio").upsert({ fecha, fecha_fin: fechaFin, archivo_path: path, archivo_nombre: file.name, texto_extraido: texto, subido_por: state.session.user.id, updated_at: new Date().toISOString() }, { onConflict: "fecha" });
     if (error) throw error;
-    e.target.reset(); status.textContent = "✓ Rol guardado."; await loadRolesServicio();
+    e.target.reset(); status.textContent = `✓ Rol guardado.${avisoFecha}`; await loadRolesServicio();
   } catch (error) { console.error(error); errorEl.textContent = "No se pudo subir el rol: " + (error.message || error); errorEl.classList.remove("hidden"); }
   finally { ocuparBoton(boton, false); }
 });
