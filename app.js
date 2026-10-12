@@ -15,6 +15,7 @@ import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda, normal
 import { datosDelOficio, faltaParaElOficio, renderizarOficioRemisionDocx } from "./lib/oficioRemision.js";
 import { fechaLima, horaLima, hoyLima } from "./lib/fechas.js";
 import { esClaveInicial, validarClaveNueva } from "./lib/acceso.js";
+import { interpretarResultadoRol, rolParaFecha } from "./lib/rolServicio.js";
 import { normalizarError, crearLimitador, sinParametros } from "./lib/errores.js";
 import { restaurarNombres, seudonimizarInvestigados } from "./lib/privacidad.js";
 
@@ -2183,6 +2184,7 @@ async function renderCasoDetail(caso) {
             ${puedeGestionar && !caso.sancion_generada_at && !caso.archivo_procedimiento_generado_at ? `
               <form id="puestoRolForm" class="inline-edit">
                 <input type="text" id="fPuestoRolEdit" value="${escapeHtml(caso.puesto_rol || "")}" placeholder="Sin registrar" />
+                <button type="button" id="btnBuscarPuestoRol" class="btn-secondary">Buscar en el rol</button>
                 <button type="submit" class="btn-secondary">Guardar</button>
               </form>
               <p id="puestoRolMsg" class="error small hidden" role="alert"></p>
@@ -2363,6 +2365,7 @@ async function renderCasoDetail(caso) {
   $("descargoForm")?.addEventListener("submit", (e) => submitDescargo(e, caso.id));
   $("btnQuitarDescargo")?.addEventListener("click", (e) => quitarDescargo(caso, e.currentTarget));
   $("puestoRolForm")?.addEventListener("submit", (e) => submitPuestoRol(e, caso.id));
+  $("btnBuscarPuestoRol")?.addEventListener("click", (e) => buscarPuestoRolEnDetalle(caso, e.currentTarget));
   $("sancionForm")?.addEventListener("submit", (e) => submitSancion(e, caso));
   $("archivoProcedimientoForm")?.addEventListener("submit", (e) => submitArchivoProcedimiento(e, caso));
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
@@ -2469,7 +2472,8 @@ async function submitDescargo(e, casoId) {
 async function submitPuestoRol(e, casoId) {
   e.preventDefault();
   const msgEl = $("puestoRolMsg");
-  msgEl.classList.add("hidden");
+  msgEl.classList.add("hidden", "error");
+  msgEl.classList.remove("muted");
   const puesto_rol = $("fPuestoRolEdit").value.replace(/\s+/g, " ").trim() || null;
   const boton = e.target.querySelector("button[type=submit]");
   ocuparBoton(boton, true, "Guardando...");
@@ -3087,10 +3091,6 @@ async function loadRolesServicio() {
   await renderRolesServicioTabla();
 }
 
-function rolGuardadoParaFecha(fecha) {
-  if (!fecha) return null;
-  return state.rolesServicio.find((rol) => fecha >= rol.fecha && fecha <= (rol.fecha_fin || rol.fecha)) || null;
-}
 
 async function renderRolesServicioTabla() {
   const tbody = $("rolesTableBody");
@@ -3121,84 +3121,133 @@ async function extraerPuestoRolIA(texto, persona, fecha) {
   return data;
 }
 
-// Avisos según la sección del rol en la que figura la persona (los mismos de
-// moral-y-disciplina): si no estaba de servicio, quizá no corresponde imputar.
-const AVISOS_SITUACION_ROL = {
-  falto: "⚠ Figura en «FALTOS AL SERVICIO» del rol.",
-  descanso_medico: "⚠ Figura con DESCANSO MÉDICO — ¿corresponde imputar?",
-  vacaciones: "⚠ Figura de VACACIONES — la ausencia podría estar justificada.",
-  permiso: "⚠ Figura con PERMISO — la ausencia podría estar justificada.",
-  franco: "⚠ Figura de FRANCO ese día.",
-  suspension: "⚠ Figura con SUSPENSIÓN TEMPORAL DEL SERVICIO.",
-  otro: "⚠ Figura en las NOVEDADES del rol, sin puesto de servicio.",
-};
+// ---------- Puesto según el rol de servicio (formulario de nuevo caso) ----------
+// Una sola búsqueda para todos los caminos: escribir los apellidos, usar
+// «Buscar» por CIP/DNI, cambiar la fecha o adjuntar el rol. Antes solo se
+// buscaba al salir de los campos de apellidos/nombres o al cambiar la fecha:
+// si la persona se llenaba con «Buscar» (lo habitual), nunca se consultaba el
+// rol y el puesto quedaba vacío sin aviso.
+let busquedaRol = { clave: "", promesa: null };
 
-function aplicarPuestoRol(resultado, fecha) {
-  const estado = $("rolAutoStatus");
-  const inicio = resultado?.fecha_rol_inicio || null;
-  const fin = resultado?.fecha_rol_fin || inicio;
-  estado.classList.remove("hidden");
-  if (inicio && (fecha < inicio || fecha > fin)) {
-    $("fPuestoRol").value = "";
-    const rango = fin && fin !== inicio ? `${formatDate(inicio)} a ${formatDate(fin)}` : formatDate(inicio);
-    estado.textContent = `⚠ Ese rol es del ${rango} y el hecho es del ${formatDate(fecha)}. Use el rol de servicio de ese día.`;
-    return;
-  }
-  const situacion = resultado?.situacion;
-  const deServicio = !situacion || situacion === "servicio" || situacion === "normal";
-  if (resultado?.puesto && deServicio) {
-    $("fPuestoRol").value = resultado.puesto;
-    estado.textContent = `✓ Puesto detectado (rol del ${formatDate(inicio || fecha)}): ${resultado.puesto}. Verifíquelo antes de guardar.`;
-  } else if (resultado?.encontrado && !deServicio) {
-    $("fPuestoRol").value = "";
-    const aviso = AVISOS_SITUACION_ROL[situacion] || AVISOS_SITUACION_ROL.otro;
-    estado.textContent = `${aviso}${resultado.detalle_novedad ? ` (${resultado.detalle_novedad})` : ""}`;
-  } else if (resultado?.puesto) {
-    $("fPuestoRol").value = resultado.puesto;
-    estado.textContent = `✓ Puesto detectado: ${resultado.puesto}. Verifíquelo antes de guardar.`;
-  } else {
-    $("fPuestoRol").value = "";
-    estado.textContent = "No se ubicó a esta persona en el rol de ese día. Escriba el puesto a mano si corresponde.";
-  }
-}
-
-async function resolverPuestoDesdeRolGuardado() {
-  if ($("fArchivoRol")?.files[0]) return;
-  const fecha = $("fFechaHecho")?.value;
-  const persona = `${$("fApellidos")?.value.trim() || ""} ${$("fNombres")?.value.trim() || ""}`.trim();
-  if (!fecha || !persona) return;
-  const rol = rolGuardadoParaFecha(fecha);
-  const estado = $("rolAutoStatus");
+// El rol guardado para la fecha; si no está en memoria (otro usuario lo subió
+// después de que esta sesión cargó la lista), se vuelve a consultar una vez.
+async function rolGuardadoParaFechaActualizado(fecha) {
+  let rol = rolParaFecha(state.rolesServicio, fecha);
   if (!rol) {
-    estado.classList.remove("hidden");
-    estado.textContent = `No hay rol de servicio guardado para el ${formatDate(fecha)}. Pida que lo suban en la pestaña «Roles» o adjunte aquí el de ese día.`;
-    return;
+    await loadRolesServicio();
+    rol = rolParaFecha(state.rolesServicio, fecha);
   }
-  if (!rol.texto_extraido) return;
-  estado.classList.remove("hidden");
-  estado.textContent = "Buscando el puesto en el rol guardado...";
-  try { aplicarPuestoRol(await extraerPuestoRolIA(rol.texto_extraido, persona, fecha), fecha); }
-  catch (error) { console.error(error); estado.textContent = "No se pudo consultar el rol guardado. Complete el puesto manualmente."; }
+  return rol;
 }
 
-async function leerRolAdjunto(file) {
-  if (!file) return;
-  const fecha = $("fFechaHecho")?.value;
-  const persona = `${$("fApellidos")?.value.trim() || ""} ${$("fNombres")?.value.trim() || ""}`.trim();
+function personaDelFormulario() {
+  return `${$("fApellidos")?.value.trim() || ""} ${$("fNombres")?.value.trim() || ""}`.trim();
+}
+
+function mostrarEstadoRol(texto) {
   const estado = $("rolAutoStatus");
-  estado.classList.remove("hidden");
-  if (!fecha || !persona) { estado.textContent = "Complete fecha, apellidos y nombres antes de analizar el rol."; return; }
-  try {
-    const texto = file.type === "application/pdf" ? await extractPdfText(file, (m) => { estado.textContent = m; }) : await extractImagenTextoConOcr(file, (m) => { estado.textContent = m; });
-    estado.textContent = "Identificando el puesto con IA...";
-    aplicarPuestoRol(await extraerPuestoRolIA(texto, persona, fecha), fecha);
-  } catch (error) { console.error(error); estado.textContent = "No se pudo leer el rol. Complete el puesto manualmente."; }
+  estado.textContent = texto;
+  estado.classList.toggle("hidden", !texto);
 }
 
-$("fArchivoRol")?.addEventListener("change", (e) => { void leerRolAdjunto(e.target.files[0]); });
-$("fFechaHecho")?.addEventListener("change", () => { void resolverPuestoDesdeRolGuardado(); });
-$("fApellidos")?.addEventListener("blur", () => { void resolverPuestoDesdeRolGuardado(); });
-$("fNombres")?.addEventListener("blur", () => { void resolverPuestoDesdeRolGuardado(); });
+// Pone el puesto encontrado. No pisa lo que el usuario escribió a mano.
+function aplicarResultadoRolFormulario({ puesto, mensaje }) {
+  const campo = $("fPuestoRol");
+  const escritoAMano = campo.value.trim() && campo.dataset.auto !== "true";
+  if (puesto && !escritoAMano) { campo.value = puesto; campo.dataset.auto = "true"; }
+  else if (!puesto && campo.dataset.auto === "true") { campo.value = ""; delete campo.dataset.auto; }
+  mostrarEstadoRol(escritoAMano && puesto && puesto !== campo.value.trim()
+    ? `${mensaje} (Se conservó el puesto que usted escribió.)`
+    : mensaje);
+}
+
+// Devuelve el puesto hallado (o null). Si ya se buscó con los mismos datos,
+// reutiliza esa búsqueda.
+function buscarPuestoEnRol() {
+  const fecha = $("fFechaHecho")?.value;
+  const persona = personaDelFormulario();
+  const archivo = $("fArchivoRol")?.files[0] || null;
+  if (!fecha || !persona) {
+    if (archivo) mostrarEstadoRol("Complete la fecha del hecho y los apellidos y nombres: el rol se analizará en cuanto estén.");
+    return Promise.resolve(null);
+  }
+  const clave = `${fecha}|${normalizarBusqueda(persona)}|${archivo ? `${archivo.name}:${archivo.size}` : "guardado"}`;
+  if (busquedaRol.clave === clave && busquedaRol.promesa) return busquedaRol.promesa;
+  const vigente = () => busquedaRol.clave === clave;
+  const promesa = (async () => {
+    try {
+      let texto = "";
+      if (archivo) {
+        mostrarEstadoRol("Leyendo el rol adjunto...");
+        texto = archivo.type === "application/pdf"
+          ? await extractPdfText(archivo, (m) => { if (vigente()) mostrarEstadoRol(m); })
+          : await extractImagenTextoConOcr(archivo, (m) => { if (vigente()) mostrarEstadoRol(m); });
+      } else {
+        const rol = await rolGuardadoParaFechaActualizado(fecha);
+        if (!vigente()) return null;
+        if (!rol) {
+          mostrarEstadoRol(`No hay rol de servicio guardado para el ${formatDate(fecha)}. Pida que lo suban en la pestaña «Roles» o adjunte aquí el de ese día.`);
+          return null;
+        }
+        texto = rol.texto_extraido || "";
+        if (!texto.trim()) {
+          mostrarEstadoRol(`El rol guardado del ${formatDate(rol.fecha)} no tiene texto legible. Adjúntelo aquí o escriba el puesto a mano.`);
+          return null;
+        }
+      }
+      if (!vigente()) return null;
+      mostrarEstadoRol(`Buscando a ${persona} en el rol con IA...`);
+      const resultado = interpretarResultadoRol(await extraerPuestoRolIA(texto, persona, fecha), fecha);
+      if (!vigente()) return null;
+      aplicarResultadoRolFormulario(resultado);
+      return resultado.puesto;
+    } catch (error) {
+      console.error(error);
+      if (vigente()) {
+        mostrarEstadoRol("No se pudo consultar el rol: " + (error.message || error) + ". Escriba el puesto a mano.");
+        busquedaRol = { clave: "", promesa: null }; // se reintentará
+      }
+      return null;
+    }
+  })();
+  busquedaRol = { clave, promesa };
+  return promesa;
+}
+
+function reiniciarBusquedaRol() {
+  busquedaRol = { clave: "", promesa: null };
+  delete $("fPuestoRol").dataset.auto;
+  mostrarEstadoRol("");
+}
+
+$("fArchivoRol")?.addEventListener("change", () => { void buscarPuestoEnRol(); });
+$("fFechaHecho")?.addEventListener("change", () => { void buscarPuestoEnRol(); });
+$("fApellidos")?.addEventListener("blur", () => { void buscarPuestoEnRol(); });
+$("fNombres")?.addEventListener("blur", () => { void buscarPuestoEnRol(); });
+$("fPuestoRol")?.addEventListener("input", () => { delete $("fPuestoRol").dataset.auto; });
+
+// En el detalle de un caso ya creado: busca el puesto en el rol guardado de la
+// fecha del hecho y lo deja en el campo para revisarlo y guardarlo.
+async function buscarPuestoRolEnDetalle(caso, boton) {
+  const msgEl = $("puestoRolMsg");
+  msgEl.classList.remove("hidden", "error");
+  msgEl.classList.add("muted");
+  ocuparBoton(boton, true, "Buscando...");
+  try {
+    const rol = await rolGuardadoParaFechaActualizado(caso.fecha_hecho);
+    if (!rol) { msgEl.textContent = `No hay rol de servicio guardado para el ${formatDate(caso.fecha_hecho)}. Súbalo en la pestaña «Roles».`; return; }
+    if (!String(rol.texto_extraido || "").trim()) { msgEl.textContent = `El rol del ${formatDate(rol.fecha)} no tiene texto legible. Vuelva a subirlo en «Roles».`; return; }
+    const persona = `${caso.apellidos || ""} ${caso.nombres || ""}`.trim();
+    const { puesto, mensaje } = interpretarResultadoRol(await extraerPuestoRolIA(rol.texto_extraido, persona, caso.fecha_hecho), caso.fecha_hecho);
+    if (puesto) $("fPuestoRolEdit").value = puesto;
+    msgEl.textContent = puesto ? `${mensaje.replace(" Verifíquelo antes de guardar.", "")} Verifíquelo y presione «Guardar» para registrarlo.` : mensaje;
+  } catch (error) {
+    console.error(error);
+    msgEl.textContent = "No se pudo consultar el rol: " + (error.message || error);
+  } finally {
+    ocuparBoton(boton, false);
+  }
+}
 
 $("rolForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -3304,6 +3353,7 @@ function abrirModalNuevoCaso() {
   $("infraccionPreview").classList.add("hidden");
   $("hechoIAStatus").classList.add("hidden");
   $("codigoIASugerencia").classList.add("hidden");
+  reiniciarBusquedaRol();
   actualizarBotonRedactarIA();
   // Quien crea el caso normalmente ES el oficial que constató -- se
   // autocompleta con sus propios datos (buscados por su CIP de sesión), sin
@@ -3382,6 +3432,7 @@ $("btnBuscarEfectivo").addEventListener("click", async () => {
   $("fNombres").value = nombres;
   resultEl.textContent = `Encontrado: ${found.grado || ""} ${found.apellidos_nombres || ""}`;
   resultEl.classList.remove("hidden");
+  void buscarPuestoEnRol();
 });
 
 $("casoForm").addEventListener("submit", async (e) => {
@@ -3394,6 +3445,21 @@ $("casoForm").addEventListener("submit", async (e) => {
     errEl.textContent = "El código de infracción debe ser uno del Anexo I de infracciones Leves (L1 a L117).";
     errEl.classList.remove("hidden");
     return;
+  }
+
+  // Si el puesto está vacío, se termina (o se hace) la búsqueda en el rol antes
+  // de guardar. Si aparece un puesto, se deja a la vista para verificarlo.
+  if (!$("fPuestoRol").value.trim() && $("fFechaHecho").value && personaDelFormulario()) {
+    const botonGuardar = e.target.querySelector("button[type=submit]");
+    ocuparBoton(botonGuardar, true, "Revisando el rol...");
+    let hallado = null;
+    try { hallado = await buscarPuestoEnRol(); } finally { ocuparBoton(botonGuardar, false); }
+    if (hallado) {
+      errEl.textContent = `Se encontró el puesto en el rol de servicio: ${hallado}. Verifíquelo y presione «Guardar caso» de nuevo.`;
+      errEl.classList.remove("hidden");
+      $("fPuestoRol").scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
   }
 
   const oficialConstatoTexto = $("fOficialConstato").value.trim();
