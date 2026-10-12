@@ -1,6 +1,23 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+
+// La anon key es pública (está en config.js) y pasa la verificación de JWT de
+// Supabase, así que por sí sola no prueba nada: sin esta comprobación
+// cualquiera podía usar la IA a costa de la cuenta. Se exige un usuario real
+// con sesión iniciada (con la anon key, /auth/v1/user responde error).
+async function sesionAutenticada(req: Request): Promise<boolean> {
+  const auth = req.headers.get("authorization");
+  if (!auth?.startsWith("Bearer ") || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+  try {
+    const respuesta = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { authorization: auth, apikey: SUPABASE_ANON_KEY } });
+    return respuesta.ok;
+  } catch (_) {
+    return false;
+  }
+}
 const MODEL = "claude-sonnet-5";
 
 const SYSTEM_PROMPT = `Eres un asesor legal que redacta la "Descripción del hecho" para el documento "Inicio de Imputación de Infracción Leve" de la Policía Nacional del Perú (PNP), conforme a la Ley N° 30714 - Ley que regula el Régimen Disciplinario de la PNP.
@@ -48,6 +65,9 @@ Deno.serve(async (req: Request) => {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (!(await sesionAutenticada(req))) {
+    return new Response(JSON.stringify({ error: "Debe iniciar sesión." }), { status: 401, headers: { ...cors, "Content-Type": "application/json" } });
+  }
 
   if (!ANTHROPIC_API_KEY) {
     return new Response(JSON.stringify({ error: "Falta configurar ANTHROPIC_API_KEY en el servidor." }), {

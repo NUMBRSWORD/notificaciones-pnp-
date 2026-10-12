@@ -12,6 +12,8 @@ import { listarDocumentosInstitucionales, listarFirmasDocumentos, firmarDocument
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
 import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda } from "./lib/utils.js";
+import { fechaLima, horaLima, hoyLima } from "./lib/fechas.js";
+import { esClaveInicial, validarClaveNueva } from "./lib/acceso.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -284,16 +286,22 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// Acepta una fecha ("2026-09-10") o un instante de la base de datos: el
+// instante se lleva a hora de Lima antes de cortar la fecha (en UTC, lo
+// registrado después de las 19:00 aparecía con la fecha del día siguiente).
 function formatDate(fechaISO) {
   if (!fechaISO) return "-";
-  const [y, m, d] = fechaISO.slice(0, 10).split("-");
+  const fecha = fechaLima(String(fechaISO));
+  if (!fecha) return "-";
+  const [y, m, d] = fecha.split("-");
   return `${d}/${m}/${y}`;
 }
 
-function formatFechaHora(fecha, hora) {
-  const f = formatDate(fecha);
-  if (f === "-") return "-";
-  return hora ? `${f} ${hora.slice(0, 5)}` : f;
+// Fecha y hora de Lima para un instante (created_at, generado_at, etc.).
+function formatInstante(instante) {
+  if (!instante) return "-";
+  const fecha = fechaLima(String(instante));
+  return fecha ? `${formatDate(fecha)} ${horaLima(String(instante))}` : "-";
 }
 
 // Archiva en Storage y registra en documentos_generados cada versión de un
@@ -336,11 +344,12 @@ function segmentoRuta(texto, fallback = "sin-dato") {
 }
 
 function datosRutaExpedienteCerrado(caso, archivoNombre) {
-  const ahora = new Date();
-  const anio = String(ahora.getFullYear());
-  const mes = String(ahora.getMonth() + 1).padStart(2, "0");
-  const investigado = buscarInvestigado(caso, state.efectivos);
-  const cipInvestigado = investigado?.cip || "SIN-CIP";
+  const [anio, mes] = hoyLima().split("-");
+  // Antes se llamaba buscarInvestigado(caso, efectivos) con los argumentos
+  // cambiados: nunca encontraba a nadie y todo expediente se archivaba como
+  // "CIP SIN-CIP". El CIP guardado en el caso es el dato confiable.
+  const investigado = caso.investigado_cip ? null : buscarInvestigado(caso.apellidos, caso.nombres, state.efectivos);
+  const cipInvestigado = caso.investigado_cip || investigado?.cip || "SIN-CIP";
   const carpeta = [
     caso.fecha_hecho || "sin-fecha", nombreInvestigadoVisible(caso),
     `CIP ${cipInvestigado}`, caso.codigo_infraccion || "SIN-CODIGO",
@@ -393,7 +402,7 @@ function leerBorradorSancion(casoId) {
 function actualizarEstadoAutoguardado(fechaISO, recuperado = false) {
   const estado = $("sancionAutoguardado");
   if (!estado) return;
-  const hora = fechaISO ? new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(fechaISO)) : "";
+  const hora = fechaISO ? new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Lima" }).format(new Date(fechaISO)) : "";
   estado.textContent = recuperado ? `Se recuperó el borrador local (${hora}).` : `Borrador guardado a las ${hora}.`;
 }
 
@@ -873,8 +882,32 @@ async function loadProfile(userId, email) {
   });
 }
 
+// true si la base exige cambiar la clave antes de operar. Si la consulta falla
+// (red, o seguridad_claves.sql aún no ejecutado) NO se bloquea el ingreso: el
+// servidor ya no entrega datos a una cuenta pendiente, con o sin esta ventana.
+async function necesitaCambiarClave() {
+  try {
+    const { data, error } = await supabase.rpc("necesita_cambiar_clave");
+    if (error) { console.warn("necesita_cambiar_clave:", error.message); return false; }
+    return data === true;
+  } catch (err) {
+    console.warn("necesita_cambiar_clave:", err);
+    return false;
+  }
+}
+
 async function onAuthed(session) {
   state.session = session;
+  // El cambio de clave se exige en el SERVIDOR: si la clave es la inicial (= CIP),
+  // la base marca la cuenta y no le da acceso a nada hasta que la cambie.
+  // Aquí solo se muestra la ventana para hacerlo.
+  try { await supabase.rpc("exigir_cambio_si_clave_inicial"); } catch (err) { console.warn(err); }
+  if (await necesitaCambiarClave()) {
+    $("topbar").classList.add("hidden");
+    showView("view-login");
+    abrirCambioClave({ obligatorio: true });
+    return;
+  }
   $("topbar").classList.remove("hidden");
   await loadProfile(session.user.id, session.user.email);
   void prepararAlertasMovil();
@@ -895,7 +928,12 @@ function onSignedOut() {
   showView("view-login");
 }
 
-supabase.auth.onAuthStateChange((_event, session) => {
+supabase.auth.onAuthStateChange((event, session) => {
+  // La renovación periódica del token y el cambio de clave no son un ingreso
+  // nuevo: solo se actualiza la sesión, sin recargar toda la aplicación (antes
+  // se recargaba todo cada hora y, al cambiar la clave, se cruzaba con el cierre
+  // de la ventana de cambio).
+  if (session && (event === "TOKEN_REFRESHED" || event === "USER_UPDATED")) { state.session = session; return; }
   if (session) onAuthed(session); else onSignedOut();
 });
 
@@ -916,6 +954,12 @@ $("loginForm").addEventListener("submit", async (e) => {
     if (error) {
       $("loginError").textContent = "Correo o clave incorrectos.";
       $("loginError").classList.remove("hidden");
+    } else {
+      // Respaldo por si el servidor aún no tiene seguridad_claves.sql: si la
+      // clave es el mismo CIP, se pide cambiarla igual. Nunca impide el ingreso.
+      try {
+        if (esClaveInicial($("loginEmail").value, password)) abrirCambioClave({ obligatorio: true, claveActual: password });
+      } catch (err) { console.warn(err); }
     }
   } finally {
     ocuparBoton(submitBtn, false);
@@ -924,6 +968,133 @@ $("loginForm").addEventListener("submit", async (e) => {
 
 $("btnLogout").addEventListener("click", async () => {
   await supabase.auth.signOut();
+});
+
+// ---------- Cambio de clave ----------
+// Obligatorio al ingresar con la clave inicial (sin botón de cerrar: solo
+// cambiarla o cerrar sesión); voluntario desde el botón "Cambiar clave".
+let cambioClave = { obligatorio: false, claveActual: "" };
+
+function abrirCambioClave({ obligatorio = false, claveActual = "" } = {}) {
+  // Si ya está abierta como obligatoria, una segunda llamada no la vuelve opcional.
+  const yaObligatorio = cambioClave.obligatorio && !$("modalCambiarClave").classList.contains("hidden");
+  cambioClave = { obligatorio: obligatorio || yaObligatorio, claveActual: claveActual || cambioClave.claveActual };
+  $("cambiarClaveForm").reset();
+  $("ccError").classList.add("hidden");
+  $("cambiarClaveAviso").classList.toggle("hidden", !cambioClave.obligatorio);
+  $("btnCerrarCambiarClave").classList.toggle("hidden", cambioClave.obligatorio);
+  $("modalCambiarClave").classList.remove("hidden");
+  $("ccNueva").focus();
+}
+
+function cerrarCambioClave() {
+  $("modalCambiarClave").classList.add("hidden");
+  $("cambiarClaveForm").reset();
+  cambioClave = { obligatorio: false, claveActual: "" };
+}
+
+$("btnCambiarClave").addEventListener("click", () => abrirCambioClave());
+$("btnCerrarCambiarClave").addEventListener("click", cerrarCambioClave);
+$("btnSalirCambiarClave").addEventListener("click", async () => {
+  cerrarCambioClave();
+  await supabase.auth.signOut();
+});
+$("cambiarClaveForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = $("ccError");
+  errEl.classList.add("hidden");
+  const problema = validarClaveNueva($("ccNueva").value, $("ccRepite").value, cambioClave.claveActual);
+  if (problema) {
+    errEl.textContent = problema;
+    errEl.classList.remove("hidden");
+    return;
+  }
+  const btn = $("btnGuardarClave");
+  ocuparBoton(btn, true, "Guardando...");
+  try {
+    const { error } = await supabase.auth.updateUser({ password: $("ccNueva").value });
+    if (error) {
+      errEl.textContent = "No se pudo cambiar la clave: " + (error.message || "error de red o de sesión") + ".";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    // El servidor comprueba que la clave cambió de verdad y levanta la marca.
+    // Sin seguridad_claves.sql la función no existe: la clave ya cambió igual.
+    const { data: confirmada, error: errConfirma } = await supabase.rpc("confirmar_cambio_clave");
+    if ((errConfirma && tipoFalloBusqueda(errConfirma) !== "sin_funcion") || confirmada === false) {
+      errEl.textContent = "La clave se guardó pero no pudo validarse. Cierre sesión, ingrese con la clave nueva y repita el cambio.";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    const eraObligatorio = cambioClave.obligatorio;
+    cerrarCambioClave();
+    alert("✓ Clave actualizada.");
+    if (eraObligatorio && state.session) await onAuthed(state.session);
+  } finally {
+    ocuparBoton(btn, false);
+  }
+});
+
+// Las cuentas son "{cip}@imputacionpnp.local": no hay correo al que enviar un
+// enlace, así que la clave temporal la genera un administrador.
+$("btnOlvideClave").addEventListener("click", (e) => {
+  e.preventDefault();
+  $("olvideClaveAyuda").classList.toggle("hidden");
+});
+
+// ---------- Restablecer clave de otro usuario (solo administrador) ----------
+function cerrarRestablecerClave() {
+  $("modalRestablecerClave").classList.add("hidden");
+  $("restablecerClaveForm").reset();
+  $("rcResultado").classList.add("hidden");
+  $("btnCopiarClaveTemporal").classList.add("hidden");
+  $("rcError").classList.add("hidden");
+  $("rcClave").textContent = "";
+}
+$("btnAbrirRestablecerClave").addEventListener("click", () => {
+  cerrarRestablecerClave();
+  $("modalRestablecerClave").classList.remove("hidden");
+  $("rcCip").focus();
+});
+$("btnCerrarRestablecerClave").addEventListener("click", cerrarRestablecerClave);
+$("btnCopiarClaveTemporal").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("rcClave").textContent);
+    $("btnCopiarClaveTemporal").textContent = "Copiada";
+  } catch (_) {
+    alert("No se pudo copiar. Selecciónela y cópiela a mano.");
+  }
+});
+$("restablecerClaveForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errEl = $("rcError");
+  errEl.classList.add("hidden");
+  const cip = $("rcCip").value.trim();
+  if (!/^\d{4,10}$/.test(cip)) {
+    errEl.textContent = "Escriba un CIP válido (solo números).";
+    errEl.classList.remove("hidden");
+    return;
+  }
+  if (!confirm(`¿Generar una clave temporal para el CIP ${cip}? Su clave actual dejará de funcionar y se cerrarán sus sesiones abiertas.`)) return;
+  const btn = $("btnRestablecerConfirmar");
+  ocuparBoton(btn, true, "Generando...");
+  try {
+    const { data, error } = await supabase.rpc("restablecer_clave_usuario", { p_cip: cip });
+    if (error) {
+      errEl.textContent = tipoFalloBusqueda(error) === "sin_funcion"
+        ? "Esta función aún no está activada en el servidor: falta ejecutar seguridad_claves.sql en Supabase."
+        : (error.message || "No se pudo restablecer la clave.");
+      errEl.classList.remove("hidden");
+      return;
+    }
+    $("rcResultadoCip").textContent = cip;
+    $("rcClave").textContent = String(data || "");
+    $("rcResultado").classList.remove("hidden");
+    $("btnCopiarClaveTemporal").textContent = "Copiar";
+    $("btnCopiarClaveTemporal").classList.remove("hidden");
+  } finally {
+    ocuparBoton(btn, false);
+  }
 });
 
 // ---------- Registro (autoservicio; nace con rol "viewer") ----------
@@ -999,11 +1170,8 @@ function renderResumenRapido() {
 function obtenerAccionesPrioritarias() {
 function diasHastaFecha(fecha) {
   if (!fecha) return null;
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-  const destino = new Date(`${fecha}T12:00:00`);
-  destino.setHours(0, 0, 0, 0);
-  return Math.round((destino - hoy) / 86400000);
+  const aUtc = (iso) => { const [y, m, d] = iso.split("-").map(Number); return Date.UTC(y, m - 1, d); };
+  return Math.round((aUtc(fecha) - aUtc(hoyLima())) / 86400000);
 }
 
   return (state.casos || []).flatMap((caso) => {
@@ -1069,7 +1237,7 @@ function renderAgenda() {
 $("buscarAgenda").addEventListener("input", renderAgenda);
 
 function exportarAgendaCalendario() {
-  const fechaIcs = (fecha) => String(fecha || new Date().toISOString().slice(0, 10)).slice(0, 10).replaceAll("-", "");
+  const fechaIcs = (fecha) => (fechaLima(String(fecha || "")) || hoyLima()).replaceAll("-", "");
   const escaparIcs = (texto) => String(texto || "").replace(/[\\,;]/g, "\\$&").replace(/\n/g, "\\n");
   const eventos = obtenerAccionesPrioritarias().map((accion, index) => {
     const fecha = accion.tipo === "Plazo vencido" ? fechaLimiteDescargo(accion.caso) : (accion.caso.created_at || new Date().toISOString());
@@ -1077,7 +1245,7 @@ function exportarAgendaCalendario() {
     return ["BEGIN:VEVENT", `UID:${stamp}`, `DTSTAMP:${fechaIcs(new Date().toISOString())}T000000Z`, `DTSTART;VALUE=DATE:${fechaIcs(fecha)}`, `SUMMARY:${escaparIcs(`${accion.tipo}: ${accion.nombre}`)}`, `DESCRIPTION:${escaparIcs(accion.detalle)}`, "END:VEVENT"].join("\r\n");
   });
   const contenido = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Notificaciones PNP//Agenda//ES", ...eventos, "END:VCALENDAR"].join("\r\n");
-  saveAs(new Blob([contenido], { type: "text/calendar;charset=utf-8" }), `agenda_notificaciones_${new Date().toISOString().slice(0, 10)}.ics`);
+  saveAs(new Blob([contenido], { type: "text/calendar;charset=utf-8" }), `agenda_notificaciones_${hoyLima()}.ics`);
 }
 
 $("btnExportarAgenda").addEventListener("click", exportarAgendaCalendario);
@@ -1098,7 +1266,7 @@ async function renderDocumentosGenerados() {
   const etiquetas = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción", archivo_procedimiento: "Archivo del Procedimiento" };
   const filas = await Promise.all(docs.map(async (doc) => {
     const enlace = await fileLinkHtml("casos-imputacion-pnp", doc.archivo_path, doc.archivo_nombre);
-    return `<article class="document-item"><div><span class="action-type">${escapeHtml(etiquetas[doc.tipo] || doc.tipo || "Documento")}</span><strong>${escapeHtml(doc.archivo_nombre || "Sin nombre")}</strong><span class="muted small">Generado ${formatFechaHora(String(doc.generado_at || "").slice(0, 10), String(doc.generado_at || "").slice(11, 16))} · ${escapeHtml(doc.generado_por_email || "-")}</span></div><div>${enlace}</div></article>`;
+    return `<article class="document-item"><div><span class="action-type">${escapeHtml(etiquetas[doc.tipo] || doc.tipo || "Documento")}</span><strong>${escapeHtml(doc.archivo_nombre || "Sin nombre")}</strong><span class="muted small">Generado ${formatInstante(doc.generado_at || "")} · ${escapeHtml(doc.generado_por_email || "-")}</span></div><div>${enlace}</div></article>`;
   }));
   $("documentosLista").innerHTML = filas.join("");
 }
@@ -1193,14 +1361,14 @@ async function renderExpedientesRemitidos() {
     const enlaceHt = await fileLinkHtml("expedientes-terminados-pnp", item.archivo_ht_path, item.archivo_ht_nombre);
     const enlaceOficio = await fileLinkHtml("expedientes-terminados-pnp", item.archivo_oficio_path, item.archivo_oficio_nombre);
     const estadoDrive = item.drive_expediente_url
-      ? `<p class="muted small">☁ <a href="${escapeHtml(item.drive_expediente_url)}" target="_blank" rel="noopener">Copia respaldada en Drive</a>${item.drive_sync_at ? ` · ${formatFechaHora(String(item.drive_sync_at).slice(0, 10), String(item.drive_sync_at).slice(11, 16))}` : ""}</p>`
+      ? `<p class="muted small">☁ <a href="${escapeHtml(item.drive_expediente_url)}" target="_blank" rel="noopener">Copia respaldada en Drive</a>${item.drive_sync_at ? ` · ${formatInstante(item.drive_sync_at)}` : ""}</p>`
       : `<p class="muted small">☁ ${item.drive_error ? `Pendiente de respaldo: ${escapeHtml(item.drive_error)}` : "Aún no se respaldó en Drive."}</p>`;
     const esPendiente = item.estado === "remitido";
     return `<article class="reception-item estado-${escapeHtml(item.estado || "remitido")}">
       <div class="reception-item-main">
         <div class="reception-title-row"><span class="reception-status">${escapeHtml(etiquetaEstadoRecepcion(item.estado))}</span><strong>${escapeHtml(item.investigado_nombre || "Investigado sin nombre")}</strong></div>
         <div class="reception-meta"><span>📅 Falta: ${formatDate(item.fecha_hecho)}</span><span>⚖ ${escapeHtml(item.codigo_infraccion || "-")}</span><span>🪪 CIP investigado: ${escapeHtml(item.investigado_cip || "-")}</span></div>
-        <p class="muted small">Registrado por ${escapeHtml(item.remitido_por_cip ? `CIP ${item.remitido_por_cip}` : (item.remitido_por_email || "-"))} · ${formatFechaHora(String(item.remitido_at || "").slice(0, 10), String(item.remitido_at || "").slice(11, 16))}</p>
+        <p class="muted small">Registrado por ${escapeHtml(item.remitido_por_cip ? `CIP ${item.remitido_por_cip}` : (item.remitido_por_email || "-"))} · ${formatInstante(item.remitido_at || "")}</p>
         ${item.observacion ? `<p class="reception-observation"><b>Observación:</b> ${escapeHtml(item.observacion)}</p>` : ""}
         <p class="storage-path" title="Ruta en almacenamiento">📁 ${escapeHtml(item.carpeta_archivo || item.archivo_path || "")}</p>
         ${estadoDrive}
@@ -1473,7 +1641,7 @@ function construirResumenEstadoCasos() {
     codigo_infraccion: c.codigo_infraccion || null,
     fecha_hecho: c.fecha_hecho || null,
     imputacion_notificada: !!c.imputacion_generada_at,
-    fecha_notificacion_imputacion: c.imputacion_generada_at ? c.imputacion_generada_at.slice(0, 10) : null,
+    fecha_notificacion_imputacion: c.imputacion_generada_at ? fechaLima(c.imputacion_generada_at) : null,
     plazo_descargo_vencido: plazoDescargoVencido(c),
     descargo_recibido: !!c.fecha_descargo,
     acta_no_descargo_generada: !!c.acta_no_descargo_generada_at,
@@ -1496,7 +1664,7 @@ async function generarResumenEjecutivo() {
   try {
     const casos = construirResumenEstadoCasos();
     const { data, error } = await supabase.functions.invoke("generar-resumen-casos", {
-      body: { fechaHoy: new Date().toISOString().slice(0, 10), casos },
+      body: { fechaHoy: hoyLima(), casos },
     });
     if (error) throw error;
     if (data?.error) throw new Error(data.error);
@@ -1669,7 +1837,7 @@ function cronologiaCasoHtml(caso) {
     },
     {
       titulo: "Notificación", estado: !hechoCompleto ? "no-disponible" : imputacionNotificada ? "completo" : "pendiente",
-      detalle: imputacionNotificada ? formatDate(String(caso.imputacion_generada_at).slice(0, 10)) : "Registre la fecha cuando se notifique",
+      detalle: imputacionNotificada ? formatDate(caso.imputacion_generada_at) : "Registre la fecha cuando se notifique",
     },
     {
       titulo: "Descargo", estado: !imputacionNotificada ? "no-disponible" : caso.fecha_descargo ? "completo" : plazoVencido ? "vencido" : "pendiente",
@@ -1681,11 +1849,11 @@ function cronologiaCasoHtml(caso) {
     },
     {
       titulo: "Orden", estado: !puedeEvaluar ? "no-disponible" : archivado ? "no-disponible" : ordenGenerada ? "completo" : "pendiente",
-      detalle: !puedeEvaluar ? "Disponible después de la evaluación" : archivado ? "No corresponde: caso archivado sin sanción" : ordenGenerada ? `Generada el ${formatDate(String(caso.sancion_generada_at).slice(0, 10))}` : "Pendiente de generar la orden",
+      detalle: !puedeEvaluar ? "Disponible después de la evaluación" : archivado ? "No corresponde: caso archivado sin sanción" : ordenGenerada ? `Generada el ${formatDate(caso.sancion_generada_at)}` : "Pendiente de generar la orden",
     },
     {
       titulo: "Cierre", estado: archivado ? "completo" : !ordenGenerada ? "no-disponible" : ordenNotificada ? "completo" : "pendiente",
-      detalle: archivado ? `Archivo generado el ${formatDate(String(caso.archivo_procedimiento_generado_at).slice(0, 10))}` : !ordenGenerada ? "Disponible después de generar la orden" : ordenNotificada ? `Orden notificada el ${formatDate(String(caso.orden_notificada_at).slice(0, 10))}` : "Registre la notificación de la orden",
+      detalle: archivado ? `Archivo generado el ${formatDate(caso.archivo_procedimiento_generado_at)}` : !ordenGenerada ? "Disponible después de generar la orden" : ordenNotificada ? `Orden notificada el ${formatDate(caso.orden_notificada_at)}` : "Registre la notificación de la orden",
     },
   ];
   const etiquetas = { completo: "Completo", pendiente: "Pendiente", vencido: "Vencido", "no-disponible": "No disponible" };
@@ -1859,7 +2027,7 @@ $("btnExportarExcel").addEventListener("click", () => {
   hoja["!cols"] = Object.keys(filas[0]).map((k) => ({ wch: Math.max(k.length, 14) }));
   const libro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(libro, hoja, "Casos");
-  const fecha = new Date().toISOString().slice(0, 10);
+  const fecha = hoyLima();
   XLSX.writeFile(libro, `casos_imputacion_${fecha}.xlsx`);
 });
 
@@ -1915,7 +2083,7 @@ async function renderCasoDetail(caso) {
   const versionesHtml = versionesDocs?.length
     ? (await Promise.all(versionesDocs.map(async (v) => {
         const link = await fileLinkHtml("casos-imputacion-pnp", v.archivo_path, v.archivo_nombre);
-        return `<div class="detail-field"><div class="label">${escapeHtml(TIPO_DOCUMENTO_LABEL[v.tipo] || v.tipo)} — ${formatFechaHora(v.generado_at.slice(0, 10), v.generado_at.slice(11, 16))}</div><div class="value">${link} <span class="muted small">(${escapeHtml(v.generado_por_email || "-")})</span></div></div>`;
+        return `<div class="detail-field"><div class="label">${escapeHtml(TIPO_DOCUMENTO_LABEL[v.tipo] || v.tipo)} — ${formatInstante(v.generado_at)}</div><div class="value">${link} <span class="muted small">(${escapeHtml(v.generado_por_email || "-")})</span></div></div>`;
       }))).join("")
     : "";
 
@@ -1969,7 +2137,7 @@ async function renderCasoDetail(caso) {
           <div class="value">
             ${puedeGestionar ? `
               <form id="notificacionForm" class="inline-edit">
-                <input type="date" id="fNotificacion" value="${caso.imputacion_generada_at ? caso.imputacion_generada_at.slice(0, 10) : ""}" required />
+                <input type="date" id="fNotificacion" value="${caso.imputacion_generada_at ? fechaLima(caso.imputacion_generada_at) : ""}" required />
                 <button type="submit" class="btn-secondary">Guardar</button>
               </form>
               <p id="notificacionMsg" class="error small hidden"></p>
@@ -1995,6 +2163,7 @@ async function renderCasoDetail(caso) {
           <div class="detail-field"><div class="label">N.º de documento</div><div class="value">${escapeHtml(caso.numero_descargo || "-")}</div></div>
           <div class="detail-field"><div class="label">Archivo</div><div class="value">${descargoArchivo}</div></div>
         </div>
+        ${puedeGestionar && !caso.sancion_generada_at && !caso.archivo_procedimiento_generado_at ? `<button type="button" class="btn-danger" id="btnQuitarDescargo" style="margin-top:12px">Quitar descargo</button>` : ""}
       ` : `
         <p class="muted small">Plazo de descargo vence el ${formatDate(fechaLimite)}.</p>
         ${plazoVencido ? `
@@ -2030,7 +2199,7 @@ async function renderCasoDetail(caso) {
           <label>Análisis y evaluación ${caso.fecha_descargo ? "(notas sueltas o texto final)" : "(se completa solo al elegir el tercio; puede editarlo)"}
             <textarea id="sSancionAnalisis" rows="6" required placeholder="Anote qué se acredita, qué alega el investigado, y por qué corresponde el tercio elegido... o escriba el texto final directamente.">${escapeHtml(analisisSancionInicial)}</textarea>
           </label>
-          <p id="sancionAutoguardado" class="muted small" aria-live="polite">${borradorSancion?.actualizadoAt ? `Se recuperó el borrador local (${new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(new Date(borradorSancion.actualizadoAt))}).` : "Los textos se guardan automáticamente en este navegador."}</p>
+          <p id="sancionAutoguardado" class="muted small" aria-live="polite">${borradorSancion?.actualizadoAt ? `Se recuperó el borrador local (${new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Lima" }).format(new Date(borradorSancion.actualizadoAt))}).` : "Los textos se guardan automáticamente en este navegador."}</p>
           ${caso.fecha_descargo ? `
           <div class="modal-actions" style="justify-content:flex-start; margin-bottom:10px">
             <button type="button" class="btn-secondary" id="btnAnalizarDescargoIA">✨ Analizar descargo con IA</button>
@@ -2042,7 +2211,7 @@ async function renderCasoDetail(caso) {
           <p id="sancionError" class="error hidden"></p>
           <button type="submit" class="btn-primary">Guardar y descargar Orden de Sanción</button>
         </form>
-        ${caso.sancion_generada_at ? `<p class="muted small">Generada por última vez el ${formatDate(caso.sancion_generada_at.slice(0, 10))}.</p>` : ""}
+        ${caso.sancion_generada_at ? `<p class="muted small">Generada por última vez el ${formatDate(caso.sancion_generada_at)}.</p>` : ""}
       ` : `<p class="muted small">Para generar la Orden de Sanción, verifique que el oficial que constató y el investigado estén registrados en Efectivos.</p>`}
     </div>
     ` : ""}
@@ -2051,7 +2220,7 @@ async function renderCasoDetail(caso) {
     <div class="detail-card">
       <h3>Archivo del Procedimiento (sin sanción)</h3>
       ${caso.archivo_procedimiento_generado_at ? `
-        <p class="success-message">✓ Caso archivado sin sanción el ${formatDate(String(caso.archivo_procedimiento_generado_at).slice(0, 10))}.</p>
+        <p class="success-message">✓ Caso archivado sin sanción el ${formatDate(caso.archivo_procedimiento_generado_at)}.</p>
         <div class="detail-grid"><div class="detail-field"><div class="label">N.º de resolución</div><div class="value">${escapeHtml(caso.archivo_procedimiento_resolucion_numero || "-")}</div></div><div class="detail-field"><div class="label">Motivo</div><div class="value">${escapeHtml(caso.archivo_procedimiento_motivo || "-")}</div></div></div>
       ` : puedeArchivoProcedimiento ? `
         <p class="muted small">Úselo si, tras evaluar el descargo, concluye que el hecho no se adecúa a ningún código del Anexo I. Es una alternativa a la Orden de Sanción: al generarlo, el caso quedará cerrado sin sanción.</p>
@@ -2068,7 +2237,7 @@ async function renderCasoDetail(caso) {
     <div class="detail-card">
       <h3>Cargo del expediente firmado</h3>
       ${caso.orden_notificada_at ? `
-        <p class="muted small">Legajo registrado el ${formatDate(caso.orden_notificada_at.slice(0, 10))}.</p>
+        <p class="muted small">Legajo registrado el ${formatDate(caso.orden_notificada_at)}.</p>
         <div class="detail-grid"><div class="detail-field"><div class="label">Legajo firmado</div><div class="value">${expedienteFirmadoArchivo}</div></div>${caso.archivo_descargo_path ? `<div class="detail-field"><div class="label">Descargo adjunto por separado</div><div class="value">${descargoArchivo}</div></div>` : ""}</div>
       ` : `
         <p class="muted small">Suba el legajo completo firmado en un solo PDF: Imputación, constancia de notificación, Descargo o Acta, Orden y cargo de notificación. La IA revisa qué documentos contiene antes de guardar.</p>
@@ -2129,6 +2298,7 @@ async function renderCasoDetail(caso) {
   $("btnDescargarActa")?.addEventListener("click", (e) => handleDescargarActaNoDescargo(caso, e.currentTarget));
   $("notificacionForm")?.addEventListener("submit", (e) => submitNotificacion(e, caso.id));
   $("descargoForm")?.addEventListener("submit", (e) => submitDescargo(e, caso.id));
+  $("btnQuitarDescargo")?.addEventListener("click", (e) => quitarDescargo(caso, e.currentTarget));
   $("sancionForm")?.addEventListener("submit", (e) => submitSancion(e, caso));
   $("archivoProcedimientoForm")?.addEventListener("submit", (e) => submitArchivoProcedimiento(e, caso));
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
@@ -2227,6 +2397,35 @@ async function submitDescargo(e, casoId) {
 
   if (error) { errEl.textContent = "Error: " + error.message; errEl.classList.remove("hidden"); return; }
   openCasoDetail(casoId);
+}
+
+// Para un descargo registrado por error (otra persona, fecha equivocada). El
+// resumen y el análisis de la Orden se basaban en ese descargo, así que también
+// se limpian. El archivo queda en Storage y el cambio queda en el historial.
+async function quitarDescargo(caso, btn) {
+  if (caso.sancion_generada_at || caso.archivo_procedimiento_generado_at) {
+    alert("El caso ya tiene Orden de Sanción o Archivo: el descargo ya no se puede quitar.");
+    return;
+  }
+  if (!confirm("¿Quitar el descargo registrado? Se borrará también el resumen y el análisis redactados para la Orden de Sanción.")) return;
+  ocuparBoton(btn, true, "Quitando...");
+  try {
+    const { error } = await supabase.from("casos").update({
+      fecha_descargo: null,
+      numero_descargo: null,
+      archivo_descargo_path: null,
+      archivo_descargo_nombre: null,
+      sancion_descargo_texto: null,
+      sancion_analisis_texto: null,
+      sancion_tercio_label: null,
+    }).eq("id", caso.id).is("sancion_generada_at", null);
+    if (error) throw error;
+    eliminarBorradorSancion(caso.id);
+    await openCasoDetail(caso.id);
+  } catch (error) {
+    alert("No se pudo quitar el descargo: " + (error.message || error));
+    ocuparBoton(btn, false);
+  }
 }
 
 // Casos previos del mismo investigado (mismo criterio de emparejamiento por
@@ -2562,7 +2761,7 @@ async function submitSancion(e, caso) {
 async function reservarCorrelativoArchivoProcedimiento(casoId) {
   const { data, error } = await supabase.rpc("reservar_correlativo_archivo_procedimiento", {
     p_caso_id: casoId,
-    p_anio: new Date().getFullYear(),
+    p_anio: Number(hoyLima().slice(0, 4)),
   });
   if (error) throw new Error("No se pudo asignar el número correlativo: " + error.message);
   const registro = Array.isArray(data) ? data[0] : data;
@@ -2952,7 +3151,7 @@ $("casoForm").addEventListener("submit", async (e) => {
 // ---------- Cumplimiento: políticas y firma electrónica simple ----------
 function fechaHoraFirma(valor) {
   if (!valor) return "";
-  return new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short" }).format(new Date(valor));
+  return new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(valor));
 }
 
 async function loadCumplimientoView() {
@@ -3173,10 +3372,8 @@ function renderHistorialTable(entries) {
   for (const e of entries) {
     const tr = document.createElement("tr");
     const pillClase = e.action === "INSERT" ? "pill-yes" : e.action === "DELETE" ? "pill-no" : "pill-inactive";
-    const fecha = e.changed_at.slice(0, 10);
-    const hora = e.changed_at.slice(11, 16);
     tr.innerHTML = `
-      <td>${formatFechaHora(fecha, hora)}</td>
+      <td>${formatInstante(e.changed_at)}</td>
       <td>${escapeHtml(e.changed_by_email || "-")}</td>
       <td>${escapeHtml(e.table_name)}</td>
       <td><span class="pill ${pillClase}">${escapeHtml(e.action)}</span></td>

@@ -1,6 +1,23 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+
+// La anon key es pública (está en config.js) y pasa la verificación de JWT de
+// Supabase, así que por sí sola no prueba nada: sin esta comprobación
+// cualquiera podía usar la IA a costa de la cuenta. Se exige un usuario real
+// con sesión iniciada (con la anon key, /auth/v1/user responde error).
+async function sesionAutenticada(req: Request): Promise<boolean> {
+  const auth = req.headers.get("authorization");
+  if (!auth?.startsWith("Bearer ") || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+  try {
+    const respuesta = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { authorization: auth, apikey: SUPABASE_ANON_KEY } });
+    return respuesta.ok;
+  } catch (_) {
+    return false;
+  }
+}
 const MODEL = "claude-sonnet-5";
 
 const SYSTEM_PROMPT_IMPUTACION = `Eres un asesor legal que revisa, ANTES de generarse, el documento "Inicio de Imputación de Infracción Leve" de la Policía Nacional del Perú (PNP), conforme a la Ley N.° 30714. Se te da el código de infracción, su texto, fecha y descripción del hecho, además del sustento opcional. Señala solo inconsistencias evidentes y no inventes observaciones. Responde ÚNICAMENTE JSON válido: {"consistente":true|false,"observaciones":["..."],"fecha_detectada":null}.`;
@@ -49,6 +66,9 @@ function buildUserMessageExpediente(input: Record<string, unknown>): string {
 Deno.serve(async (req: Request) => {
   const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (!(await sesionAutenticada(req))) {
+    return new Response(JSON.stringify({ error: "Debe iniciar sesión." }), { status: 401, headers: { ...cors, "Content-Type": "application/json" } });
+  }
   if (!ANTHROPIC_API_KEY) return new Response(JSON.stringify({ error: "Falta configurar ANTHROPIC_API_KEY en el servidor." }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
   try {
     const input = await req.json();

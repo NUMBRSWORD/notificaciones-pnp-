@@ -49,6 +49,7 @@
       <button id="btnBusquedaGlobal" class="btn-ghost search-shortcut" type="button" title="Buscar personas y expedientes (Ctrl + K)">⌕ Buscar <kbd>Ctrl K</kbd></button>
       <span id="userEmail"></span>
       <span id="userRole" class="badge"></span>
+      <button id="btnCambiarClave" class="btn-ghost" type="button">Cambiar clave</button>
       <button id="btnLogout" class="btn-ghost">Salir</button>
     </div>
   </div>
@@ -73,6 +74,8 @@
       </label>
       <p id="loginError" class="error hidden"></p>
       <button type="submit" class="btn-primary">Ingresar</button>
+      <p class="muted small" style="margin-top:10px"><a href="#" id="btnOlvideClave">¿Olvidó su clave?</a></p>
+      <p id="olvideClaveAyuda" class="muted small hidden">Pídale al administrador que restablezca su clave: le entregará una clave temporal y, al ingresar con ella, tendrá que elegir una nueva.</p>
       <p class="muted small" style="margin-top:14px">¿No tiene cuenta? <a href="#" id="linkMostrarRegistro">Regístrese aquí</a>.</p>
     </form>
   </section>
@@ -271,6 +274,7 @@
       <h2>Efectivos (CIP / DNI)</h2>
       <div class="view-actions">
         <input id="searchEfectivos" type="search" placeholder="Buscar por CIP, DNI o nombre..." />
+        <button id="btnAbrirRestablecerClave" class="btn-secondary admin-only hidden" type="button">Restablecer clave</button>
         <button id="btnNuevoEfectivo" class="btn-primary admin-only hidden">+ Nuevo efectivo</button>
       </div>
     </div>
@@ -561,6 +565,56 @@
       <div class="modal-actions">
         <button type="button" id="btnCancelarDirectiva" class="btn-ghost">Cancelar</button>
         <button type="submit" class="btn-primary">Guardar directiva</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- CAMBIO DE CLAVE (obligatorio con la clave inicial; voluntario desde la barra) -->
+<div id="modalCambiarClave" class="modal-overlay hidden">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cambiarClaveTitulo">
+    <div class="modal-header">
+      <h3 id="cambiarClaveTitulo">Cambiar clave</h3>
+      <button type="button" id="btnCerrarCambiarClave" class="btn-ghost hidden" aria-label="Cerrar">✕</button>
+    </div>
+    <form id="cambiarClaveForm" class="modal-body">
+      <p id="cambiarClaveAviso" class="error hidden">La clave con la que ingresó es temporal o igual a su CIP, y otras personas podrían adivinarla. Elija una clave nueva para continuar.</p>
+      <label>Clave nueva (mínimo 8 caracteres, con al menos una letra)
+        <input type="password" id="ccNueva" required minlength="8" autocomplete="new-password" />
+      </label>
+      <label>Repita la clave nueva
+        <input type="password" id="ccRepite" required minlength="8" autocomplete="new-password" />
+      </label>
+      <p id="ccError" class="error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" id="btnSalirCambiarClave" class="btn-ghost">Cerrar sesión</button>
+        <button type="submit" id="btnGuardarClave" class="btn-primary">Guardar clave nueva</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- RESTABLECER CLAVE DE UN USUARIO (solo administrador) -->
+<div id="modalRestablecerClave" class="modal-overlay hidden">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="restablecerClaveTitulo">
+    <div class="modal-header">
+      <h3 id="restablecerClaveTitulo">Restablecer clave de un usuario</h3>
+      <button type="button" id="btnCerrarRestablecerClave" class="btn-ghost" aria-label="Cerrar">✕</button>
+    </div>
+    <form id="restablecerClaveForm" class="modal-body">
+      <p class="muted small">Para quien olvidó su clave. Se genera una clave temporal, se cierran sus sesiones abiertas y, al ingresar, se le obliga a elegir una clave nueva. Entréguela en persona. Queda registrado en el historial.</p>
+      <label>CIP del usuario
+        <input type="text" id="rcCip" required inputmode="numeric" pattern="[0-9]{4,10}" autocomplete="off" />
+      </label>
+      <p id="rcError" class="error hidden" role="alert"></p>
+      <div id="rcResultado" class="detail-card hidden">
+        <p>Clave temporal del CIP <strong id="rcResultadoCip"></strong>:</p>
+        <p><code id="rcClave" style="font-size:1.4rem; letter-spacing:.08em; user-select:all"></code></p>
+        <p class="muted small">No se volverá a mostrar. Si se pierde, restablezca otra vez.</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="btnCopiarClaveTemporal" class="btn-secondary hidden">Copiar</button>
+        <button type="submit" id="btnRestablecerConfirmar" class="btn-primary">Generar clave temporal</button>
       </div>
     </form>
   </div>
