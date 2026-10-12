@@ -11,7 +11,7 @@ import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva
 import { listarDocumentosInstitucionales, listarFirmasDocumentos, firmarDocumento, actualizarContenidoDocumentoInstitucional } from "./lib/cumplimiento.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
-import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda, normalizarNumeroOficio, sancionDelCaso } from "./lib/utils.js";
+import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda, normalizarNumeroOficio, sancionDelCaso, fechaCompacta, hechoConRolDeServicio } from "./lib/utils.js";
 import { datosDelOficio, faltaParaElOficio, renderizarOficioRemisionDocx } from "./lib/oficioRemision.js";
 import { fechaLima, horaLima, hoyLima } from "./lib/fechas.js";
 import { esClaveInicial, validarClaveNueva } from "./lib/acceso.js";
@@ -830,6 +830,13 @@ $("btnRedactarHechoIA").addEventListener("click", async () => {
       : "Mejorando la redacción con IA...";
     const codigo = normalizarCodigoInfraccion($("fCodigoInfraccion").value.trim());
     const infraccion = getInfraccion(codigo);
+    // El puesto del rol entra en la redacción. Si aún no se buscó, se busca ahora.
+    let puestoRol = $("fPuestoRol").value.trim();
+    if (!puestoRol && $("fFechaHecho").value && personaDelFormulario()) {
+      statusEl.textContent = "Buscando el puesto en el rol de servicio...";
+      puestoRol = (await buscarPuestoEnRol()) || "";
+      statusEl.textContent = texto ? "Redactando la descripción del hecho con IA..." : "Mejorando la redacción con IA...";
+    }
     const { data, error } = await supabase.functions.invoke("redactar-hecho-imputacion", {
       body: {
         investigadoCompleto: `${$("fGrado").value.trim()} ${$("fNombres").value.trim()} ${$("fApellidos").value.trim()}`.trim(),
@@ -838,12 +845,19 @@ $("btnRedactarHechoIA").addEventListener("click", async () => {
         infraccionTexto: infraccion?.infraccion || "",
         textoDocumento: texto,
         notasOficial: $("fDescripcionHecho").value.trim(),
+        puestoRol,
+        fechaRol: fechaCompacta($("fFechaHecho").value),
       },
     });
     if (error) throw error;
     if (data?.error) throw new Error(data.error);
     if (data?.descripcion_hecho) {
-      $("fDescripcionHecho").value = data.descripcion_hecho;
+      // Si la IA no integró el rol (p. ej. la función del servidor aún no se
+      // actualizó), se intercala aquí, dentro de la misma oración.
+      $("fDescripcionHecho").value = hechoConRolDeServicio(data.descripcion_hecho, {
+        apellidos: $("fApellidos").value.trim(), nombres: $("fNombres").value.trim(),
+        fecha_hecho: $("fFechaHecho").value, puesto_rol: puestoRol,
+      });
       statusEl.textContent = "Listo — revise el texto redactado antes de guardar.";
     } else {
       statusEl.textContent = "La IA no devolvió una descripción. Escríbala usted mismo.";

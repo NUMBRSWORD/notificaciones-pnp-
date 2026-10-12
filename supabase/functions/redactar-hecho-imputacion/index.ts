@@ -42,6 +42,7 @@ En ambos escenarios:
 - Ignora ruido de OCR (encabezados institucionales, sellos, firmas, datos de envío) y corrige errores obvios de OCR solo cuando el sentido es evidente por el contexto.
 - No agregues hechos, motivos o circunstancias que no estén en el texto dado ni en los datos del caso.
 - PROHIBIDO calificar jurídicamente el hecho o citar la norma: el código de infracción y su texto legal (Anexo I) ya se te dan solo como CONTEXTO, para que entiendas qué tipo de conducta estás describiendo -- NUNCA los repitas, cites ni parafrasees dentro del párrafo. Nunca escribas frases como "configurándose la infracción prevista en el código...", "tipificándose como...", "lo que constituye la infracción leve...", el código (L-1, L-2, etc.) ni el nombre del bien jurídico protegido. La calificación jurídica ya aparece en otra sección.
+- ROL DE SERVICIO: si se te da "Puesto según el rol de servicio", intégralo DENTRO de la misma oración, justo después de la primera mención del investigado, con esta fórmula exacta: "quien según el rol de servicio de la Comisaría PNP Ventanilla del <fecha del rol> se encontraba nombrado en el servicio «<puesto>»". Copia el puesto tal cual, entre «», sin cambiarlo ni abreviarlo. No lo pongas como oración o párrafo aparte. Si no se te da, no menciones el rol.
 - El párrafo debe quedar listo para usarse tal cual como el campo "DESCRIPCIÓN DEL HECHO" del documento de imputación, sin títulos ni viñetas.
 - Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con exactamente esta clave: {"descripcion_hecho": "..."}`;
 
@@ -55,6 +56,7 @@ function buildUserMessage(input: Record<string, unknown>): string {
     hayDocumento
       ? `ESCENARIO A -- Texto extraído del documento (oficio/orden telefónica/directiva), puede tener ruido de OCR:\n${input.textoDocumento}`
       : `ESCENARIO B -- No se proporcionó ningún documento de sustento.`,
+    input.puestoRol ? `Puesto según el rol de servicio: ${input.puestoRol} (fecha del rol: ${input.fechaRol || input.fechaHecho || ""})` : "",
     input.notasOficial ? `Notas del oficial (su propio relato de lo ocurrido):\n${input.notasOficial}` : "",
   ].filter(Boolean).join("\n");
 }
