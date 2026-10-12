@@ -55,7 +55,7 @@
       <button id="btnBusquedaGlobal" class="btn-ghost search-shortcut" type="button" title="Buscar personas y expedientes (Ctrl + K)">⌕ Buscar <kbd>Ctrl K</kbd></button>
       <span id="userEmail"></span>
       <span id="userRole" class="badge"></span>
-      <button id="btnCambiarClave" class="btn-ghost" type="button">Cambiar clave</button>
+      <button id="btnCambiarClave" class="btn-ghost" type="button" title="Cambiar clave" aria-label="Cambiar clave"><svg class="icono-clave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2M17 6l3 3M14.5 8.5l2 2"/></svg><span class="texto-cambiar-clave">Cambiar clave</span></button>
       <button id="btnLogout" class="btn-ghost">Salir</button>
     </div>
   </div>
@@ -637,7 +637,7 @@
   </div>
 </div>
 
-<button id="btnAbrirAsistente" class="asistente-fab" title="Asistente de consulta">💬</button>
+<button id="btnAbrirAsistente" class="asistente-fab hidden" title="Asistente de consulta">💬</button>
 <div id="asistenteWidget" class="asistente-widget hidden">
   <div class="asistente-header">
     <span>Asistente de consulta</span>

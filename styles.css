@@ -47,6 +47,10 @@ body {
 }
 
 .hidden { display: none !important; }
+/* Enlaces con el color del tema (sin esto el navegador los pinta azul/morado,
+   casi ilegibles sobre el fondo oscuro). */
+a { color: var(--accent); text-underline-offset: 2px; }
+a:hover { color: var(--accent-hover); }
 .muted { color: var(--text-muted); }
 .small { font-size: 0.85rem; }
 .error { color: var(--danger); background: var(--danger-soft); padding: 8px 12px; border-radius: 8px; }
@@ -102,6 +106,8 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 #tabSeguimiento { color: var(--accent); font-weight: 600; }
 .user-box { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--text-muted); }
 .search-shortcut { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+#btnCambiarClave { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+#btnCambiarClave .icono-clave { width: 16px; height: 16px; flex: 0 0 auto; }
 kbd { padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-muted); font: 0.72rem inherit; }
 .badge {
   background: var(--bg-card); border: 1px solid var(--border);
@@ -316,7 +322,9 @@ tbody tr:last-child td { border-bottom: none; }
 /* Modal */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+  /* Por encima de los botones flotantes (asistente 60, tema 65-70): en el celular
+     tapaban el botón Guardar de los formularios. */
+  display: flex; align-items: center; justify-content: center; z-index: 80; padding: 20px;
   transition: opacity 200ms var(--ease-out);
   @starting-style { opacity: 0; }
 }
@@ -566,6 +574,9 @@ tbody tr:last-child td { border-bottom: none; }
   .user-box > #userEmail, .user-box > .badge { display: none; }
   .search-shortcut { flex: 0 0 auto; min-height: 38px; padding: 8px 10px; }
   #btnLogout { min-height: 38px; padding: 8px 9px; font-size: 0.78rem; }
+  /* En el celular solo el ícono de llave: el texto empujaba "Buscar" sobre el título. */
+  #btnCambiarClave { min-height: 38px; padding: 8px 9px; }
+  #btnCambiarClave .texto-cambiar-clave { display: none; }
   .tema-toggle { top: auto; right: auto; left: 12px; bottom: calc(16px + env(safe-area-inset-bottom)); width: 46px; height: 46px; z-index: 65; }
 
   .view-header { align-items: flex-start; gap: 12px; margin-bottom: 14px; }

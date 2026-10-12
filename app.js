@@ -947,6 +947,7 @@ async function onAuthed(session) {
     return;
   }
   $("topbar").classList.remove("hidden");
+  $("btnAbrirAsistente").classList.remove("hidden");
   await loadProfile(session.user.id, session.user.email);
   void prepararAlertasMovil();
   showView("view-dashboard");
@@ -963,6 +964,9 @@ function onSignedOut() {
   state.session = null;
   state.role = null;
   $("topbar").classList.add("hidden");
+  // El asistente usa IA del servidor: sin sesión no responde, así que no se ofrece.
+  $("btnAbrirAsistente").classList.add("hidden");
+  $("asistenteWidget").classList.add("hidden");
   showView("view-login");
 }
 
