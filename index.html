@@ -522,6 +522,45 @@
   </div>
 </div>
 
+<!-- OFICIO DE REMISIÓN (administrador, expediente cerrado) -->
+<div id="modalOficio" class="modal-overlay hidden">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="oficioTitulo">
+    <div class="modal-header">
+      <h3 id="oficioTitulo">Oficio de remisión</h3>
+      <button type="button" id="btnCerrarModalOficio" class="btn-ghost" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="ofCaso" class="muted small"></p>
+      <label>N.º de oficio
+        <input type="text" id="ofNumero" placeholder="Ej. 045-2026" autocomplete="off" />
+      </label>
+      <p class="muted small">Solo el correlativo y el año. El resto del código lo pone la plantilla.</p>
+      <div class="grid-2">
+        <label>Grado del jefe de la DIVOPUS<input type="text" id="ofJefeGrado" placeholder="CORONEL PNP" /></label>
+        <label>Nombre del jefe de la DIVOPUS<input type="text" id="ofJefeNombre" placeholder="Nombres APELLIDOS" /></label>
+      </div>
+      <label>Cargo<input type="text" id="ofJefeCargo" /></label>
+      <p id="ofJefeDesde" class="muted small"></p>
+      <div class="grid-2">
+        <label>Grado del comisario que firma<input type="text" id="ofComisarioGrado" placeholder="MAYOR" /></label>
+        <label>Nombre del comisario que firma<input type="text" id="ofComisarioNombre" placeholder="Nombres APELLIDOS" /></label>
+      </div>
+      <div class="grid-2">
+        <label>N.º OA del comisario<input type="text" id="ofComisarioOa" placeholder="Ej. 300001" /></label>
+        <label>Cargo del comisario<input type="text" id="ofComisarioCargo" value="COMISARIO DE VENTANILLA" /></label>
+      </div>
+      <p class="muted small">Confírmelo cada vez: de aquí salen las iniciales y el bloque de firma del pie.</p>
+      <label class="checkbox-row"><input type="checkbox" id="ofConfirmarFirmantes" /> Confirmo que el jefe y el comisario indicados son los actuales.</label>
+      <p id="ofResumen" class="muted small" aria-live="polite"></p>
+      <p id="ofError" class="error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" id="btnCancelarOficio" class="btn-ghost">Cancelar</button>
+        <button type="button" id="btnGenerarOficio" class="btn-primary">Generar el oficio</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL NUEVO EFECTIVO -->
 <div id="modalNuevoEfectivo" class="modal-overlay hidden">
   <div class="modal">

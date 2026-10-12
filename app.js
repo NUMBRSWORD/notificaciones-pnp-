@@ -11,7 +11,8 @@ import { listarDirectivas, directivasParaIA, guardarDirectiva, eliminarDirectiva
 import { listarDocumentosInstitucionales, listarFirmasDocumentos, firmarDocumento, actualizarContenidoDocumentoInstitucional } from "./lib/cumplimiento.js";
 import { Chart } from "https://esm.sh/chart.js@4.4.4/auto";
 import saveAs from "https://esm.sh/file-saver@2.0.5";
-import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda } from "./lib/utils.js";
+import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda, normalizarNumeroOficio, sancionDelCaso } from "./lib/utils.js";
+import { datosDelOficio, faltaParaElOficio, renderizarOficioRemisionDocx } from "./lib/oficioRemision.js";
 import { fechaLima, horaLima, hoyLima } from "./lib/fechas.js";
 import { esClaveInicial, validarClaveNueva } from "./lib/acceso.js";
 import { normalizarError, crearLimitador, sinParametros } from "./lib/errores.js";
@@ -1305,7 +1306,7 @@ async function renderDocumentosGenerados() {
   const query = $("buscarDocumentos").value.trim().toLowerCase();
   const docs = documentosGenerados.filter((doc) => !query || `${doc.tipo || ""} ${doc.archivo_nombre || ""} ${doc.generado_por_email || ""}`.toLowerCase().includes(query));
   $("documentosEmpty").classList.toggle("hidden", docs.length > 0);
-  const etiquetas = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción", archivo_procedimiento: "Archivo del Procedimiento" };
+  const etiquetas = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción", archivo_procedimiento: "Archivo del Procedimiento", oficio_remision: "Oficio de remisión" };
   const filas = await Promise.all(docs.map(async (doc) => {
     const enlace = await fileLinkHtml("casos-imputacion-pnp", doc.archivo_path, doc.archivo_nombre);
     return `<article class="document-item"><div><span class="action-type">${escapeHtml(etiquetas[doc.tipo] || doc.tipo || "Documento")}</span><strong>${escapeHtml(doc.archivo_nombre || "Sin nombre")}</strong><span class="muted small">Generado ${formatInstante(doc.generado_at || "")} · ${escapeHtml(doc.generado_por_email || "-")}</span></div><div>${enlace}</div></article>`;
@@ -2121,7 +2122,7 @@ async function renderCasoDetail(caso) {
     .select("*")
     .eq("caso_id", caso.id)
     .order("generado_at", { ascending: false });
-  const TIPO_DOCUMENTO_LABEL = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción", archivo_procedimiento: "Archivo del Procedimiento" };
+  const TIPO_DOCUMENTO_LABEL = { imputacion: "Imputación", acta_no_descargo: "Acta de No Descargo", orden_sancion: "Orden de Sanción", archivo_procedimiento: "Archivo del Procedimiento", oficio_remision: "Oficio de remisión" };
   const versionesHtml = versionesDocs?.length
     ? (await Promise.all(versionesDocs.map(async (v) => {
         const link = await fileLinkHtml("casos-imputacion-pnp", v.archivo_path, v.archivo_nombre);
@@ -2322,7 +2323,11 @@ async function renderCasoDetail(caso) {
         </div>
         ${expedienteCerrado.observacion ? `<p class="reception-observation"><b>Observación:</b> ${escapeHtml(expedienteCerrado.observacion)}</p>` : ""}
       ` : `<p class="muted small">El expediente está cerrado, pero aún no fue registrado en Recepción. Regístrelo allí para adjuntar el PDF firmado, el HT y el Oficio.</p>`}
-      <button type="button" id="btnAbrirRecepcionDesdeCaso" class="btn-secondary">Abrir Recepción</button>
+      ${caso.oficio_remision_numero ? `<p class="muted small">Oficio de remisión N.º ${escapeHtml(caso.oficio_remision_numero)} generado.</p>` : ""}
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button type="button" id="btnGenerarOficioDesdeCaso" class="btn-primary">${caso.oficio_remision_numero ? "Volver a generar el oficio de remisión" : "Generar oficio de remisión"}</button>
+        <button type="button" id="btnAbrirRecepcionDesdeCaso" class="btn-secondary">Abrir Recepción</button>
+      </div>
     </div>
     ` : ""}
   `;
@@ -2346,6 +2351,7 @@ async function renderCasoDetail(caso) {
   $("btnAnalizarDescargoIA")?.addEventListener("click", () => analizarDescargoConIA(caso));
   $("btnVerificarNotifIA")?.addEventListener("click", () => verificarNotificacionOrdenIA(caso));
   $("ordenNotifForm")?.addEventListener("submit", (e) => submitNotificacionOrden(e, caso));
+  $("btnGenerarOficioDesdeCaso")?.addEventListener("click", () => abrirOficio(caso));
   $("btnAbrirRecepcionDesdeCaso")?.addEventListener("click", () => { showView("view-recepcion"); loadCasos().then(loadExpedientesRemitidos); });
 
   const descargoSancionEl = $("sSancionDescargo");
@@ -2850,6 +2856,182 @@ async function submitArchivoProcedimiento(e, caso) {
     ocuparBoton(boton, false);
   }
 }
+// ---------- Oficio de remisión ----------
+// Se hace con el expediente firmado ya registrado. Casi todo sale de lo
+// registrado en el caso; solo dos cosas se confirman a mano: el jefe de la
+// DIVOPUS, que cambia cada tanto, y el comisario que firma. Ambos quedan
+// recordados en este equipo y la pantalla dice desde cuándo, para notar
+// cuándo cambiaron.
+const MEMORIA_OFICIO = "pnp-ventanilla:oficio:firmantes:v1";
+let casoDelOficio = null;
+let generandoOficio = false;
+
+function firmantesRecordados() {
+  try {
+    const previo = JSON.parse(localStorage.getItem(MEMORIA_OFICIO) || "null");
+    return previo && typeof previo === "object" ? previo : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function recordarFirmantes(datos) {
+  try { localStorage.setItem(MEMORIA_OFICIO, JSON.stringify({ ...datos, confirmado: hoyLima() })); } catch (_) { /* sin memoria, se escriben cada vez */ }
+}
+
+// Quien IMPUSO la sanción es el oficial que constató y firmó la Orden; quien
+// FIRMA el oficio es el comisario. Pueden ser personas distintas.
+function oficialQueSanciono(caso) {
+  const oficial = buscarOficialConstato(caso?.oficial_constato, state.efectivos || []);
+  if (!oficial) return {};
+  const grado = String(oficial.grado || "").replace(/\bPNP\b/gi, "").trim();
+  const { apellidos, nombres } = splitApellidosNombres(oficial.apellidos_nombres);
+  return { grado, nombre: nombreCompletoVisible(apellidos, nombres) };
+}
+
+function quienRedactaOficio() {
+  const yo = (state.efectivos || []).find((e) => String(e.cip || "") === String(state.cip || ""));
+  return yo?.apellidos_nombres || "";
+}
+
+// Lo que trae el expediente según lo registrado: descargo o acta, la
+// imputación notificada y el cargo de la Orden.
+function piezasDelCaso(caso) {
+  return {
+    descargo: Boolean(caso.fecha_descargo),
+    acta_no_descargo: !caso.fecha_descargo,
+    notificacion_firmada: Boolean(caso.orden_notificada_at),
+  };
+}
+
+function datosDelOficioEnPantalla() {
+  return datosDelOficio({
+    nota: { ...casoDelOficio, ...sancionDelCaso(casoDelOficio) },
+    piezas: piezasDelCaso(casoDelOficio),
+    jefe: { grado: $("ofJefeGrado").value.trim(), nombre: $("ofJefeNombre").value.trim(), cargo: $("ofJefeCargo").value.trim() },
+    comisario: {
+      grado: $("ofComisarioGrado").value.trim(), nombre: $("ofComisarioNombre").value.trim(),
+      oa: $("ofComisarioOa").value.trim(), cargo: $("ofComisarioCargo").value.trim(),
+    },
+    sanciona: oficialQueSanciono(casoDelOficio),
+    numeroOficio: normalizarNumeroOficio($("ofNumero").value) || $("ofNumero").value.trim(),
+    fecha: hoyLima(),
+    redactadoPor: quienRedactaOficio(),
+  });
+}
+
+function refrescarResumenOficio() {
+  if (!casoDelOficio) return;
+  const datos = datosDelOficioEnPantalla();
+  const falta = faltaParaElOficio(datos);
+  if ($("ofNumero").value.trim() && !normalizarNumeroOficio($("ofNumero").value)) falta.push("un número de oficio válido (correlativo y año, p. ej. 045-2026)");
+  if (!$("ofConfirmarFirmantes").checked) falta.push("confirmar los firmantes actuales");
+  $("ofResumen").textContent = falta.length
+    ? `Falta ${falta.join(", ")}.`
+    : `Se remite: orden de sanción con ${datos.sancion}, ${datos.documentos}.`;
+  $("btnGenerarOficio").disabled = falta.length > 0;
+}
+
+function abrirOficio(caso) {
+  if (generandoOficio) return;
+  casoDelOficio = caso;
+  const previo = firmantesRecordados();
+  $("ofCaso").textContent = `Expediente de ${nombreInvestigadoVisible(caso, true)} · ${caso.codigo_infraccion || "sin código"}`;
+  $("ofNumero").value = caso.oficio_remision_numero || "";
+  $("ofJefeGrado").value = previo.jefeGrado || "CORONEL PNP";
+  $("ofJefeNombre").value = previo.jefeNombre || "";
+  $("ofJefeCargo").value = previo.jefeCargo || "JEFE DE LA DIVOPUS 03 VENTANILLA";
+  $("ofComisarioGrado").value = previo.comisarioGrado || "";
+  $("ofComisarioNombre").value = previo.comisarioNombre || "";
+  $("ofComisarioOa").value = previo.comisarioOa || "";
+  $("ofComisarioCargo").value = previo.comisarioCargo || "COMISARIO DE VENTANILLA";
+  $("ofConfirmarFirmantes").checked = false;
+  $("ofJefeDesde").textContent = previo.confirmado
+    ? `Firmantes confirmados por última vez el ${formatDate(previo.confirmado)}. Si cambiaron, corríjalos aquí.`
+    : "Todavía no se confirmó ningún firmante: escríbalos y quedarán recordados en este equipo.";
+  $("ofError").classList.add("hidden");
+  refrescarResumenOficio();
+  $("modalOficio").classList.remove("hidden");
+}
+
+function cerrarOficio() {
+  if (generandoOficio) return;
+  $("modalOficio").classList.add("hidden");
+  casoDelOficio = null;
+}
+
+// Sin oficio_remision.sql la columna no existe: el oficio se genera igual,
+// sin guardar ni comprobar el número.
+const faltaColumnaOficio = (error) => error?.code === "42703" || error?.code === "PGRST204" || /oficio_remision_numero/.test(String(error?.message || ""));
+
+async function comprobarOficioLibre(casoId, numero) {
+  const { data, error } = await supabase.from("casos").select("id").eq("oficio_remision_numero", numero).neq("id", casoId).limit(1);
+  if (error) {
+    if (faltaColumnaOficio(error)) return false;
+    throw new Error("No se pudo comprobar si el número de oficio ya se usó. Reintente.");
+  }
+  if (data?.length) throw new Error(`El oficio ${numero} ya figura en otro caso. Revise el número.`);
+  return true;
+}
+
+["ofNumero", "ofJefeGrado", "ofJefeNombre", "ofJefeCargo", "ofComisarioGrado", "ofComisarioNombre", "ofComisarioOa", "ofComisarioCargo"]
+  .forEach((id) => $(id)?.addEventListener("input", () => {
+    if (id !== "ofNumero") $("ofConfirmarFirmantes").checked = false;
+    refrescarResumenOficio();
+  }));
+$("ofConfirmarFirmantes")?.addEventListener("change", refrescarResumenOficio);
+$("btnCerrarModalOficio")?.addEventListener("click", cerrarOficio);
+$("btnCancelarOficio")?.addEventListener("click", cerrarOficio);
+
+$("btnGenerarOficio")?.addEventListener("click", async (e) => {
+  if (!casoDelOficio) return;
+  const btn = e.currentTarget;
+  if (btn.disabled || generandoOficio) return;
+  const errEl = $("ofError");
+  const caso = casoDelOficio;
+  const datos = datosDelOficioEnPantalla();
+  errEl.classList.add("hidden");
+  generandoOficio = true;
+  const controles = $("modalOficio").querySelectorAll("input, #btnCancelarOficio, #btnCerrarModalOficio");
+  controles.forEach((el) => { el.disabled = true; });
+  ocuparBoton(btn, true, "Generando...");
+  try {
+    const falta = faltaParaElOficio(datos);
+    if (!$("ofConfirmarFirmantes").checked) falta.push("confirmar los firmantes actuales");
+    if (falta.length) throw new Error(`Falta ${falta.join(", ")}.`);
+    const numero = normalizarNumeroOficio(datos.numero_oficio);
+    if (!numero) throw new Error("Escriba el número de oficio como correlativo y año, por ejemplo 045-2026.");
+    const columnaLista = await comprobarOficioLibre(caso.id, numero);
+    const blob = await renderizarOficioRemisionDocx({ ...datos, numero_oficio: numero });
+    const nombreArchivo = nombreArchivoDocumento(`OFICIO REMISION ${numero}`, caso);
+    saveAs(blob, nombreArchivo);
+    await registrarVersionDocumento(caso.id, "oficio_remision", blob, nombreArchivo);
+    let aviso = "✓ Oficio generado. Adjúntelo en Recepción junto con la Hoja de Trámite cuando la reciba.";
+    if (columnaLista) {
+      const { error } = await supabase.from("casos").update({ oficio_remision_numero: numero }).eq("id", caso.id);
+      if (error) aviso = `El oficio se generó, pero su número (${numero}) no quedó guardado en el caso: ${error.message}`;
+    }
+    recordarFirmantes({
+      jefeGrado: $("ofJefeGrado").value.trim(), jefeNombre: $("ofJefeNombre").value.trim(), jefeCargo: $("ofJefeCargo").value.trim(),
+      comisarioGrado: $("ofComisarioGrado").value.trim(), comisarioNombre: $("ofComisarioNombre").value.trim(),
+      comisarioOa: $("ofComisarioOa").value.trim(), comisarioCargo: $("ofComisarioCargo").value.trim(),
+    });
+    generandoOficio = false;
+    cerrarOficio();
+    alert(aviso);
+    await openCasoDetail(caso.id);
+  } catch (err) {
+    console.error("No se pudo generar el oficio:", err);
+    errEl.textContent = "No se pudo generar el oficio: " + (err.message || err);
+    errEl.classList.remove("hidden");
+  } finally {
+    generandoOficio = false;
+    controles.forEach((el) => { el.disabled = false; });
+    ocuparBoton(btn, false);
+    if (casoDelOficio) refrescarResumenOficio();
+  }
+});
+
 async function eliminarCaso(id) {
   if (!confirm("¿Eliminar este caso? Esta acción no se puede deshacer.")) return;
   const { error } = await supabase.from("casos").delete().eq("id", id);

@@ -1,6 +1,6 @@
 // Prueba PostgreSQL aislada (PGlite) de los .sql que se ejecutan a mano en
-// Supabase: seguridad_claves.sql, archivo_procedimiento.sql y
-// registro_de_errores.sql. No usa la base real: arma un esquema mínimo con
+// Supabase: seguridad_claves.sql, archivo_procedimiento.sql,
+// registro_de_errores.sql y oficio_remision.sql. No usa la base real: arma un esquema mínimo con
 // las mismas funciones previas (es_admin, cip_actual) y comprueba permisos.
 //
 // Corre con: npm run test:db  (requiere npm ci)
@@ -79,7 +79,7 @@ before(async () => {
   await como(INTRUSO);
   assert.equal((await db.query("select id from public.casos")).rows.length, 3);
   await db.exec("reset role");
-  for (const archivo of ["seguridad_claves.sql", "archivo_procedimiento.sql", "registro_de_errores.sql"]) {
+  for (const archivo of ["seguridad_claves.sql", "archivo_procedimiento.sql", "registro_de_errores.sql", "oficio_remision.sql"]) {
     await db.exec(await readFile(new URL(archivo, raiz), "utf8"));
   }
 });
@@ -168,4 +168,11 @@ test("registro de errores: escribe con sesión, suma repetidos y solo lo lee el 
   await como(ADMIN);
   const filas = (await db.query("select veces, tipo from public.errores_app")).rows;
   assert.deepEqual(filas, [{ veces: 2, tipo: "error" }]);
+});
+
+test("oficio de remisión: un mismo número no se repite entre casos", async () => {
+  await db.exec("reset role");
+  await db.query("update public.casos set oficio_remision_numero = '045-2026' where id = $1", [CASO]);
+  await falla("update public.casos set oficio_remision_numero = '045-2026' where id = $1", /duplicate key|unique/, [CASO_SANCIONADO]);
+  await db.query("update public.casos set oficio_remision_numero = '046-2026' where id = $1", [CASO_SANCIONADO]);
 });
