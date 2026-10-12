@@ -8,9 +8,13 @@ alter table public.casos add column if not exists archivo_procedimiento_correlat
 create index if not exists casos_archivo_procedimiento_idx
   on public.casos (archivo_procedimiento_generado_at)
   where archivo_procedimiento_generado_at is not null;
-create unique index if not exists casos_archivo_procedimiento_correlativo_unico
-  on public.casos (archivo_procedimiento_correlativo)
-  where archivo_procedimiento_correlativo is not null;
+-- El contador se reinicia cada año: lo único es el número completo (incluye el
+-- año), no el correlativo solo. Con un índice sobre el correlativo, el primer
+-- Archivo de 2027 (N.º 001) chocaría con el N.º 001 de 2026.
+drop index if exists public.casos_archivo_procedimiento_correlativo_unico;
+create unique index if not exists casos_archivo_procedimiento_numero_unico
+  on public.casos (archivo_procedimiento_resolucion_numero)
+  where archivo_procedimiento_resolucion_numero is not null;
 
 -- Un solo contador por año para todos los oficiales de la aplicación.
 create table if not exists public.correlativos_documentos (
@@ -35,19 +39,36 @@ as $$
 declare
   v_correlativo integer;
   v_numero text;
+  v_cip text;
+  v_sancion timestamptz;
+  v_descargo date;
 begin
   if p_anio < 2020 or p_anio > 2100 then
     raise exception 'Año de correlativo no válido';
   end if;
 
-  select archivo_procedimiento_correlativo, archivo_procedimiento_resolucion_numero
-    into v_correlativo, v_numero
+  select archivo_procedimiento_correlativo, archivo_procedimiento_resolucion_numero,
+         oficial_constato_cip, sancion_generada_at, fecha_descargo
+    into v_correlativo, v_numero, v_cip, v_sancion, v_descargo
     from public.casos
    where id = p_caso_id
    for update;
 
   if not found then
     raise exception 'No se encontró el caso solicitado';
+  end if;
+
+  -- La función corre con permisos elevados: debe exigir lo mismo que RLS
+  -- (admin o el oficial dueño del caso) para que nadie reserve números ni
+  -- modifique casos ajenos.
+  if not (public.es_admin() or v_cip = public.cip_actual()) then
+    raise exception 'No tiene permiso para archivar este caso';
+  end if;
+  if v_sancion is not null then
+    raise exception 'El caso ya tiene Orden de Sanción; no corresponde archivarlo';
+  end if;
+  if v_descargo is null then
+    raise exception 'Primero registre el descargo que será evaluado';
   end if;
 
   -- Una segunda descarga o reintento conserva el número que ya recibió el caso.
