@@ -16,6 +16,7 @@ import { datosDelOficio, faltaParaElOficio, renderizarOficioRemisionDocx } from 
 import { fechaLima, horaLima, hoyLima } from "./lib/fechas.js";
 import { esClaveInicial, validarClaveNueva } from "./lib/acceso.js";
 import { interpretarResultadoRol, rolParaFecha } from "./lib/rolServicio.js";
+import { leerPuestoDelRol, periodoDelRol, textoPorPosicion } from "./lib/lectorRol.js";
 import { normalizarError, crearLimitador, sinParametros } from "./lib/errores.js";
 import { restaurarNombres, seudonimizarInvestigados } from "./lib/privacidad.js";
 
@@ -3128,6 +3129,63 @@ async function eliminarRolServicio(id, path) {
   await loadRolesServicio();
 }
 
+// Texto de un rol en PDF armado por la posición de cada fragmento en la hoja
+// (ver lib/lectorRol.js). Si el PDF es una imagen escaneada (casi sin texto),
+// se usa la lectura general, que pasa por la IA con visión.
+async function textoDeRolPdf(archivo, onEstado) {
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: await archivo.arrayBuffer(), isEvalSupported: false }).promise;
+    const paginas = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const contenido = await (await pdf.getPage(i)).getTextContent();
+      paginas.push(contenido.items.map((it) => ({ str: it.str, x: it.transform?.[4], y: it.transform?.[5], h: it.height })));
+    }
+    const texto = textoPorPosicion(paginas);
+    if ((texto.match(/[A-Za-zÁÉÍÓÚÑáéíóúñ]/g) || []).length >= 400) return texto;
+  } catch (error) {
+    console.warn("No se pudo leer el rol por posición:", error);
+  }
+  return extractPdfText(archivo, onEstado);
+}
+
+async function textoDeRolArchivo(archivo, onEstado) {
+  const esPdf = archivo.type === "application/pdf" || /\.pdf$/i.test(archivo.name || "");
+  return esPdf ? textoDeRolPdf(archivo, onEstado) : extractImagenTextoConOcr(archivo, onEstado);
+}
+
+// Texto de un rol ya guardado. Se vuelve a leer el PDF original por posición
+// (los roles subidos antes guardaron el texto con los encabezados fuera de
+// lugar); si no se puede descargar, se usa el texto guardado.
+const textosDeRolesGuardados = new Map();
+async function textoDeRolGuardado(rol) {
+  const clave = `${rol.id}:${rol.archivo_path}`;
+  if (textosDeRolesGuardados.has(clave)) return textosDeRolesGuardados.get(clave);
+  let texto = rol.texto_extraido || "";
+  if (/\.pdf$/i.test(rol.archivo_path || "")) {
+    try {
+      const { data: blob, error } = await supabase.storage.from("casos-imputacion-pnp").download(rol.archivo_path);
+      if (!error && blob) {
+        const releido = await textoDeRolPdf(new File([blob], rol.archivo_nombre || "rol.pdf", { type: "application/pdf" }));
+        if (releido.trim()) texto = releido;
+      }
+    } catch (error) {
+      console.warn("No se pudo releer el rol guardado:", error);
+    }
+  }
+  textosDeRolesGuardados.set(clave, texto);
+  return texto;
+}
+
+// Ubica a la persona en el rol: primero con la lectura directa del formato del
+// rol de Ventanilla (exacta, sin costo, no depende del servidor) y, solo si no
+// la encuentra, con la IA.
+async function ubicarEnRol(texto, { apellidos, nombres }, fecha) {
+  const directo = leerPuestoDelRol(texto, { apellidos, nombres });
+  if (directo.encontrado) return directo;
+  const ia = await extraerPuestoRolIA(texto, `${apellidos || ""} ${nombres || ""}`.trim(), fecha);
+  return { ...ia, fecha_rol_inicio: ia?.fecha_rol_inicio || directo.fecha_rol_inicio, fecha_rol_fin: ia?.fecha_rol_fin || directo.fecha_rol_fin };
+}
+
 async function extraerPuestoRolIA(texto, persona, fecha) {
   const { data, error } = await supabase.functions.invoke("extraer-puesto-rol", { body: { texto, persona, fecha } });
   if (error) throw error;
@@ -3193,9 +3251,7 @@ function buscarPuestoEnRol() {
       let texto = "";
       if (archivo) {
         mostrarEstadoRol("Leyendo el rol adjunto...");
-        texto = archivo.type === "application/pdf"
-          ? await extractPdfText(archivo, (m) => { if (vigente()) mostrarEstadoRol(m); })
-          : await extractImagenTextoConOcr(archivo, (m) => { if (vigente()) mostrarEstadoRol(m); });
+        texto = await textoDeRolArchivo(archivo, (m) => { if (vigente()) mostrarEstadoRol(m); });
       } else {
         const rol = await rolGuardadoParaFechaActualizado(fecha);
         if (!vigente()) return null;
@@ -3203,7 +3259,9 @@ function buscarPuestoEnRol() {
           mostrarEstadoRol(`No hay rol de servicio guardado para el ${formatDate(fecha)}. Pida que lo suban en la pestaña «Roles» o adjunte aquí el de ese día.`);
           return null;
         }
-        texto = rol.texto_extraido || "";
+        mostrarEstadoRol(`Leyendo el rol del ${formatDate(rol.fecha)}...`);
+        texto = await textoDeRolGuardado(rol);
+        if (!vigente()) return null;
         if (!texto.trim()) {
           mostrarEstadoRol(`El rol guardado del ${formatDate(rol.fecha)} no tiene texto legible. Adjúntelo aquí o escriba el puesto a mano.`);
           return null;
@@ -3211,7 +3269,7 @@ function buscarPuestoEnRol() {
       }
       if (!vigente()) return null;
       mostrarEstadoRol(`Buscando a ${persona} en el rol con IA...`);
-      const resultado = interpretarResultadoRol(await extraerPuestoRolIA(texto, persona, fecha), fecha);
+      const resultado = interpretarResultadoRol(await ubicarEnRol(texto, { apellidos: $("fApellidos").value.trim(), nombres: $("fNombres").value.trim() }, fecha), fecha);
       if (!vigente()) return null;
       aplicarResultadoRolFormulario(resultado);
       return resultado.puesto;
@@ -3250,9 +3308,9 @@ async function buscarPuestoRolEnDetalle(caso, boton) {
   try {
     const rol = await rolGuardadoParaFechaActualizado(caso.fecha_hecho);
     if (!rol) { msgEl.textContent = `No hay rol de servicio guardado para el ${formatDate(caso.fecha_hecho)}. Súbalo en la pestaña «Roles».`; return; }
-    if (!String(rol.texto_extraido || "").trim()) { msgEl.textContent = `El rol del ${formatDate(rol.fecha)} no tiene texto legible. Vuelva a subirlo en «Roles».`; return; }
-    const persona = `${caso.apellidos || ""} ${caso.nombres || ""}`.trim();
-    const { puesto, mensaje } = interpretarResultadoRol(await extraerPuestoRolIA(rol.texto_extraido, persona, caso.fecha_hecho), caso.fecha_hecho);
+    const textoRol = await textoDeRolGuardado(rol);
+    if (!textoRol.trim()) { msgEl.textContent = `El rol del ${formatDate(rol.fecha)} no tiene texto legible. Vuelva a subirlo en «Roles».`; return; }
+    const { puesto, mensaje } = interpretarResultadoRol(await ubicarEnRol(textoRol, { apellidos: caso.apellidos, nombres: caso.nombres }, caso.fecha_hecho), caso.fecha_hecho);
     if (puesto) $("fPuestoRolEdit").value = puesto;
     msgEl.textContent = puesto ? `${mensaje.replace(" Verifíquelo antes de guardar.", "")} Verifíquelo y presione «Guardar» para registrarlo.` : mensaje;
   } catch (error) {
@@ -3275,11 +3333,13 @@ $("rolForm")?.addEventListener("submit", async (e) => {
   ocuparBoton(boton, true, "Subiendo...");
   status.classList.remove("hidden");
   try {
-    const texto = file.type === "application/pdf" ? await extractPdfText(file, (m) => { status.textContent = m; }) : await extractImagenTextoConOcr(file, (m) => { status.textContent = m; });
+    const texto = await textoDeRolArchivo(file, (m) => { status.textContent = m; });
     let fechaFin = null;
     let avisoFecha = "";
     try {
-      const meta = await extraerPuestoRolIA(texto, "(verificación de fecha)", fecha);
+      // El periodo se lee del encabezado del rol; la IA solo si no se reconoce.
+      const periodo = periodoDelRol(texto);
+      const meta = periodo.inicio ? { fecha_rol_inicio: periodo.inicio, fecha_rol_fin: periodo.fin } : await extraerPuestoRolIA(texto, "(verificación de fecha)", fecha);
       fechaFin = meta?.fecha_rol_fin || null;
       if (meta?.fecha_rol_inicio && meta.fecha_rol_inicio !== fecha) {
         avisoFecha = ` ⚠ El encabezado del rol dice ${formatDate(meta.fecha_rol_inicio)}, pero se guardó con la fecha elegida (${formatDate(fecha)}). Si no coincide, elimínelo y súbalo con la fecha correcta.`;
