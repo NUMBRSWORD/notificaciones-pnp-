@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- Política de seguridad (CSP): solo programas de este sitio y de esm.sh, y
+     conexiones solo con Supabase. Si alguien lograra meter código en un dato
+     (un nombre, un descargo), el navegador no lo ejecuta. El script en línea del
+     tema va autorizado por su huella sha256: si se edita, hay que recalcularla
+     (lo comprueba tests/csp.test.mjs). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://esm.sh 'sha256-QBqecRuvRNRuzR62oIClr/jRk2xBK4NrHMsZJxHvwIk='; worker-src 'self' blob: https://esm.sh; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://lymoicdeexusnjdjzfid.supabase.co; font-src 'self' data:; connect-src 'self' https://esm.sh https://lymoicdeexusnjdjzfid.supabase.co wss://lymoicdeexusnjdjzfid.supabase.co; frame-src 'self' blob: https://lymoicdeexusnjdjzfid.supabase.co; media-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
 <title>CPNP Ventanilla — Uso interno</title>
 <link rel="stylesheet" href="styles.css" />
 <meta name="theme-color" content="#0d1a26" />
@@ -367,6 +373,17 @@
     <div class="view-header">
       <h2>Historial de actividad</h2>
     </div>
+    <section class="detail-card errores-card">
+      <div class="detail-card-header"><h3>Errores de los usuarios (últimos 7 días)</h3><span id="erroresN" class="badge"></span></div>
+      <p class="muted small">Lo que falló en el navegador de alguien: un error del programa o algo que bloqueó la protección de la página. Si el mismo error se repite el mismo día, se suma en «Veces». Se guardan 30 días.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Último</th><th>Quién</th><th>Tipo</th><th>Mensaje</th><th>Dónde</th><th>Veces</th></tr></thead>
+          <tbody id="erroresTableBody"></tbody>
+        </table>
+      </div>
+      <p id="erroresEstado" class="muted small"></p>
+    </section>
     <p class="muted small">Registro automático e inalterable de cambios en casos y efectivos — quién, qué y cuándo. Se genera solo, no depende de que nadie lo marque.</p>
     <div class="table-wrap">
       <table>

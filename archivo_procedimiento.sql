@@ -61,7 +61,9 @@ begin
   -- La función corre con permisos elevados: debe exigir lo mismo que RLS
   -- (admin o el oficial dueño del caso) para que nadie reserve números ni
   -- modifique casos ajenos.
-  if not (public.es_admin() or v_cip = public.cip_actual()) then
+  -- coalesce: sin CIP la comparación da NULL, y "if not (false or null)" no
+  -- entra al if (dejaría pasar a cualquiera sin CIP).
+  if not (public.es_admin() or coalesce(v_cip = public.cip_actual(), false)) then
     raise exception 'No tiene permiso para archivar este caso';
   end if;
   if v_sancion is not null then

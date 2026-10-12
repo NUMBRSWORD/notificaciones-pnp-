@@ -2,9 +2,13 @@
   "name": "notificacion-imputacion-pnp",
   "private": true,
   "type": "module",
-  "description": "Sin dependencias que instalar: los paquetes del navegador (Supabase, docxtemplater, pdf.js, Chart.js, etc.) se cargan directo desde esm.sh en el código. Este package.json solo existe para 'npm test'.",
+  "description": "Sin dependencias en el navegador: los paquetes (Supabase, docxtemplater, pdf.js, Chart.js, etc.) se cargan desde esm.sh. npm ci solo instala PGlite, una base PostgreSQL aislada para probar los .sql (no usa credenciales de producción).",
   "scripts": {
     "check": "node scripts/check.mjs",
-    "test": "node --test lib/*.test.js"
+    "test": "node --test lib/*.test.js tests/*.test.mjs",
+    "test:db": "node --test tests/db/*.test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
   }
 }

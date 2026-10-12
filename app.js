@@ -14,6 +14,7 @@ import saveAs from "https://esm.sh/file-saver@2.0.5";
 import { nombreCompletoVisible, cipDelEfectivoBuscado, tipoFalloBusqueda } from "./lib/utils.js";
 import { fechaLima, horaLima, hoyLima } from "./lib/fechas.js";
 import { esClaveInicial, validarClaveNueva } from "./lib/acceso.js";
+import { normalizarError, crearLimitador, sinParametros } from "./lib/errores.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@4.6.82/build/pdf.worker.mjs";
 
@@ -111,7 +112,9 @@ async function transcribirPdfConVisionIA(pdf, onEstado) {
 
 async function extractPdfText(file, onEstado) {
   const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  // isEvalSupported: false -- la política de seguridad (CSP) no permite eval;
+  // así pdf.js usa su camino sin eval y no deja avisos de bloqueo.
+  const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
   const textosPorPagina = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -150,6 +153,40 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+// ---------- Registro de errores ----------
+// Lo que falla en el navegador de un usuario llega a errores_app (lo ve el
+// administrador en Historial). Sin sesión se guarda en cola hasta que entre.
+// Si registro_de_errores.sql aún no se ejecutó, el envío falla en silencio.
+const pasaError = crearLimitador(20);
+const erroresPendientes = [];
+function reportarError(tipo, datos) {
+  const fila = normalizarError(tipo, datos);
+  if (!pasaError(fila)) return;
+  erroresPendientes.push(fila);
+  void enviarErrores();
+}
+async function enviarErrores() {
+  if (!state.session) return;
+  while (erroresPendientes.length) {
+    const f = erroresPendientes.shift();
+    try {
+      await supabase.rpc("registrar_error_app", {
+        p_tipo: f.tipo, p_mensaje: f.mensaje, p_origen: f.origen,
+        p_ruta: sinParametros(location.href), p_version: "web", p_agente: navigator.userAgent,
+      });
+    } catch (_) { /* sin red: no se insiste, para no generar más errores */ }
+  }
+}
+window.addEventListener("error", (e) => reportarError("error", { mensaje: e.message, archivo: e.filename, linea: e.lineno, columna: e.colno }));
+window.addEventListener("unhandledrejection", (e) => {
+  const r = e.reason;
+  reportarError("promesa", { mensaje: r?.message || String(r ?? ""), pila: r?.stack });
+});
+document.addEventListener("securitypolicyviolation", (e) => reportarError("csp", {
+  mensaje: `${e.effectiveDirective || e.violatedDirective} bloqueó ${sinParametros(e.blockedURI) || "código en línea"}`,
+  archivo: e.sourceFile, linea: e.lineNumber,
+}));
 
 const ICONOS_UI = {
   sol: '<circle cx="12" cy="12" r="3.5"/><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6m11 11 1.6 1.6M2 12h2.2m15.6 0H22M4.9 19.1l1.6-1.6m11-11 1.6-1.6"/>',
@@ -623,7 +660,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (target === "documentos") { showView("view-documentos"); loadDocumentosGenerados(); }
     if (target === "recepcion") { showView("view-recepcion"); loadCasos().then(loadExpedientesRemitidos); }
     if (target === "panel") { showView("view-panel"); renderPanel(); }
-    if (target === "historial") { showView("view-historial"); loadHistorial(); }
+    if (target === "historial") { showView("view-historial"); loadHistorial(); void loadErroresApp(); }
   });
 });
 
@@ -898,6 +935,7 @@ async function necesitaCambiarClave() {
 
 async function onAuthed(session) {
   state.session = session;
+  void enviarErrores();
   // El cambio de clave se exige en el SERVIDOR: si la clave es la inicial (= CIP),
   // la base marca la cuenta y no le da acceso a nada hasta que la cambie.
   // Aquí solo se muestra la ventana para hacerlo.
@@ -3213,6 +3251,42 @@ async function loadHistorial() {
     .limit(200);
   if (error) { console.error(error); return; }
   renderHistorialTable(data || []);
+}
+
+const TIPOS_ERROR = { error: "Programa", promesa: "Programa", aviso: "Mensaje", csp: "Protección" };
+async function loadErroresApp() {
+  const estado = $("erroresEstado");
+  const tbody = $("erroresTableBody");
+  if (!estado || !tbody) return;
+  const desde = new Date(Date.now() - 7 * 86400000).toISOString();
+  const [{ data, error }, { data: perfiles }] = await Promise.all([
+    supabase.from("errores_app").select("user_id, tipo, mensaje, origen, ruta, version, veces, ultimo_at")
+      .gte("ultimo_at", desde).order("ultimo_at", { ascending: false }).limit(200),
+    supabase.from("perfiles").select("id, email"),
+  ]);
+  tbody.innerHTML = "";
+  if (error) {
+    $("erroresN").textContent = "";
+    estado.textContent = "El registro de errores aún no está activado en Supabase (falta ejecutar registro_de_errores.sql).";
+    return;
+  }
+  const quien = new Map((perfiles || []).map((p) => {
+    const cip = /^(\d+)@imputacionpnp\.local$/i.exec(p.email || "")?.[1];
+    return [p.id, cip ? `CIP ${cip}` : (p.email || "-")];
+  }));
+  $("erroresN").textContent = String((data || []).length);
+  estado.textContent = (data || []).length ? "" : "Sin errores en los últimos 7 días.";
+  for (const e of data || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${formatInstante(e.ultimo_at)}</td>
+      <td>${escapeHtml(quien.get(e.user_id) || "-")}</td>
+      <td><span class="pill pill-inactive">${escapeHtml(TIPOS_ERROR[e.tipo] || e.tipo)}</span></td>
+      <td class="small">${escapeHtml(e.mensaje)}</td>
+      <td class="small">${escapeHtml([e.origen, e.version].filter(Boolean).join(" · ") || "-")}</td>
+      <td>${escapeHtml(e.veces)}</td>`;
+    tbody.appendChild(tr);
+  }
 }
 
 // Para UPDATE, arma una lista legible de "campo: antes → después" comparando
