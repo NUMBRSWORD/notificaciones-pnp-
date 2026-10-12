@@ -2,7 +2,7 @@
 -- Mesa de partes digital: recepción de expedientes cerrados
 -- Ejecutar una vez en Supabase SQL Editor.
 -- El archivo se guarda en un bucket privado, en una ruta lógica como:
--- expedientes_cerrados/2026/08/2026-08-26 - SOLIS GONZALES.../archivo.pdf
+-- expedientes_cerrados/2026/08/2026-08-26 - ROJAS VEGA.../archivo.pdf
 -- ============================================================================
 
 create table if not exists public.expedientes_remitidos (

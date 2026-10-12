@@ -15,7 +15,7 @@ const db = new PGlite({ extensions: { pgcrypto } });
 const ADMIN = "00000000-0000-0000-0000-00000000000a";
 const OFICIAL = "00000000-0000-0000-0000-000000000001";
 const OTRO = "00000000-0000-0000-0000-000000000002";
-const INTRUSO = "00000000-0000-0000-0000-000000000003"; // "337635@otro.invalid"
+const INTRUSO = "00000000-0000-0000-0000-000000000003"; // "400005@otro.invalid"
 const INICIAL = "00000000-0000-0000-0000-000000000004"; // clave = CIP
 const CASO = "10000000-0000-0000-0000-000000000001";
 const CASO_SANCIONADO = "10000000-0000-0000-0000-000000000002";
@@ -60,18 +60,18 @@ before(async () => {
 
     insert into auth.users values
       ('${ADMIN}', 'admin@imputacionpnp.local', extensions.crypt('clave-admin-1', extensions.gen_salt('bf')), now()),
-      ('${OFICIAL}', '337635@imputacionpnp.local', extensions.crypt('clave-buena-1', extensions.gen_salt('bf')), now()),
+      ('${OFICIAL}', '400005@imputacionpnp.local', extensions.crypt('clave-buena-1', extensions.gen_salt('bf')), now()),
       ('${OTRO}', '400001@imputacionpnp.local', extensions.crypt('clave-buena-2', extensions.gen_salt('bf')), now()),
-      ('${INTRUSO}', '337635@otro.invalid', extensions.crypt('clave-intruso', extensions.gen_salt('bf')), now()),
+      ('${INTRUSO}', '400005@otro.invalid', extensions.crypt('clave-intruso', extensions.gen_salt('bf')), now()),
       ('${INICIAL}', '400002@imputacionpnp.local', extensions.crypt('400002', extensions.gen_salt('bf')), now());
     insert into public.perfiles values
-      ('${ADMIN}', 'admin@imputacionpnp.local', 'admin'), ('${OFICIAL}', '337635@imputacionpnp.local', 'viewer'),
-      ('${OTRO}', '400001@imputacionpnp.local', 'viewer'), ('${INTRUSO}', '337635@otro.invalid', 'viewer'),
+      ('${ADMIN}', 'admin@imputacionpnp.local', 'admin'), ('${OFICIAL}', '400005@imputacionpnp.local', 'viewer'),
+      ('${OTRO}', '400001@imputacionpnp.local', 'viewer'), ('${INTRUSO}', '400005@otro.invalid', 'viewer'),
       ('${INICIAL}', '400002@imputacionpnp.local', 'viewer');
     insert into public.casos values
-      ('${CASO}', '337635', '2026-09-10', null),
-      ('${CASO_SANCIONADO}', '337635', '2026-09-10', now()),
-      ('${CASO_SIN_DESCARGO}', '337635', null, null);
+      ('${CASO}', '400005', '2026-09-10', null),
+      ('${CASO_SANCIONADO}', '400005', '2026-09-10', now()),
+      ('${CASO_SIN_DESCARGO}', '400005', null, null);
     insert into auth.sessions (user_id) values ('${OTRO}'), ('${OTRO}');
   `);
   // Antes de los cambios, el intruso con otro dominio sí veía el caso: es el
@@ -89,7 +89,7 @@ test("cip_actual solo reconoce cuentas internas @imputacionpnp.local", async () 
   assert.equal((await uno("select public.cip_actual() cip")).cip, null);
   assert.equal((await db.query("select id from public.casos")).rows.length, 0);
   await como(OFICIAL);
-  assert.equal((await uno("select public.cip_actual() cip")).cip, "337635");
+  assert.equal((await uno("select public.cip_actual() cip")).cip, "400005");
   assert.equal((await db.query("select id from public.casos")).rows.length, 3);
 });
 
@@ -151,7 +151,7 @@ test("archivo del procedimiento: solo el dueño o admin, con descargo y sin orde
 
 test("archivo del procedimiento: el contador de un año nuevo no choca con el anterior", async () => {
   await db.exec("reset role");
-  await db.exec("insert into public.casos values ('10000000-0000-0000-0000-000000000009', '337635', '2027-01-05', null)");
+  await db.exec("insert into public.casos values ('10000000-0000-0000-0000-000000000009', '400005', '2027-01-05', null)");
   await como(ADMIN);
   const r = await uno("select * from public.reservar_correlativo_archivo_procedimiento('10000000-0000-0000-0000-000000000009', 2027)");
   assert.deepEqual([r.correlativo, r.resolucion_numero], [1, "N.º 001-2027-COMVENT-A"]);

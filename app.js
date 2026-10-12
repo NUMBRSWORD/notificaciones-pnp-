@@ -3253,8 +3253,8 @@ $("btnCancelarCaso").addEventListener("click", closeModal);
 function closeModal() { $("modalNuevoCaso").classList.add("hidden"); }
 
 // Separa "apellidos_nombres" en sus dos partes. Si trae coma (formato de los
-// oficiales, p.ej. "SOLIS GONZALES,MANUEL ANGELO") corta ahí; si no (la
-// mayoría de suboficiales, p.ej. "HIDALGO FERRARI HANS BRANDON") asume que
+// oficiales, p.ej. "ROJAS VEGA,CARLOS ALBERTO") corta ahí; si no (la
+// mayoría de suboficiales, p.ej. "TORRES SALAS LUIS ENRIQUE") asume que
 // las primeras 1-2 palabras son los apellidos.
 function splitApellidosNombres(full) {
   const txt = (full || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
@@ -3307,8 +3307,8 @@ $("btnBuscarEfectivo").addEventListener("click", async () => {
   state.efectivoBuscado = found;
   $("fGrado").value = found.grado || "";
   // La mayoría de los efectivos NO tienen coma en apellidos_nombres (solo los
-  // oficiales, p.ej. "SOLIS GONZALES,MANUEL ANGELO") -- para el resto (p.ej.
-  // "HIDALGO FERRARI HANS BRANDON") hay que asumir que las primeras 1-2
+  // oficiales, p.ej. "ROJAS VEGA,CARLOS ALBERTO") -- para el resto (p.ej.
+  // "TORRES SALAS LUIS ENRIQUE") hay que asumir que las primeras 1-2
   // palabras son los apellidos, igual que ya hace el resto de la app.
   const { apellidos, nombres } = splitApellidosNombres(found.apellidos_nombres);
   $("fApellidos").value = apellidos;

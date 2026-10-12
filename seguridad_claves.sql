@@ -9,8 +9,8 @@
 --
 -- Qué arregla:
 --   1. cip_actual() tomaba lo que va antes de "@" de CUALQUIER correo. Con el
---      registro abierto, alguien podía crear "337635@otro-dominio.com" y ver y
---      editar los casos del oficial con CIP 337635. Ahora solo cuentan las
+--      registro abierto, alguien podía crear "400005@otro-dominio.com" y ver y
+--      editar los casos del oficial con CIP 400005. Ahora solo cuentan las
 --      cuentas internas "@imputacionpnp.local".
 --   2. Clave inicial (= CIP): la cuenta queda marcada y no accede a nada hasta
 --      que la cambie. Lo exige el SERVIDOR, no solo la ventana del navegador.
