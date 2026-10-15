@@ -36,7 +36,7 @@ Tu única tarea es transcribir EXACTAMENTE el texto visible en cada imagen, en e
 - Si una palabra o fragmento es completamente ilegible, márcalo como [ilegible] en vez de adivinar o inventar texto.
 - No agregues encabezados, numeración de página propia, ni ningún texto que no esté literalmente en la imagen.
 
-Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, con exactamente esta clave: {"texto": "..."} -- el texto de TODAS las páginas dadas, concatenado en orden, separado por un salto de línea doble entre páginas.`;
+Responde ÚNICAMENTE con el texto transcrito de TODAS las páginas dadas, concatenado en orden y separado por un salto de línea doble entre páginas. Sin JSON, sin comillas envolventes, sin comentarios antes ni después.`;
 
 Deno.serve(async (req: Request) => {
   const cors = {
@@ -79,10 +79,10 @@ Deno.serve(async (req: Request) => {
       { type: "text", text: `Transcribe estas ${paginas.length} página(s), en el orden dado.` },
     ];
 
-    // ~900 tokens de salida por página (una página densa de texto legal
-    // ronda los 500-800 palabras) más un margen -- suficiente para el
-    // tamaño de lote que usa el cliente (hasta 8 páginas).
-    const maxTokens = Math.min(8000, 900 * paginas.length + 400);
+    // Antes eran ~900 tokens por página: una página densa no cabía y, como
+    // además se pedía JSON, la respuesta cortada quedaba inservible ("formato
+    // no reconocible"). Ahora se pide texto plano y con más margen.
+    const maxTokens = Math.min(16000, 2500 * paginas.length + 500);
 
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -108,17 +108,19 @@ Deno.serve(async (req: Request) => {
     }
 
     const data = await resp.json();
-    const text = (data.content || []).map((b: { text?: string }) => b.text || "").join("");
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) {
-      return new Response(JSON.stringify({ error: "La IA no devolvió un formato reconocible. Intente de nuevo." }), {
+    let texto = (data.content || []).filter((b: { type?: string }) => b.type === "text").map((b: { text?: string }) => b.text || "").join("").trim();
+    // Compatibilidad: si el modelo igual envolvió el texto en {"texto": "..."}.
+    const envuelto = texto.match(/^\s*\{\s*"texto"\s*:\s*"([\s\S]*)"\s*\}\s*$/);
+    if (envuelto) { try { texto = JSON.parse(`"${envuelto[1]}"`); } catch (_) { /* se deja tal cual */ } }
+    if (!texto) {
+      return new Response(JSON.stringify({ error: "La IA no devolvió texto legible. Intente de nuevo." }), {
         status: 502,
         headers: { ...cors, "Content-Type": "application/json" },
       });
     }
-    const parsed = JSON.parse(match[0]);
 
-    return new Response(JSON.stringify(parsed), {
+    // Si se alcanzó el límite de salida, se devuelve lo transcrito avisando.
+    return new Response(JSON.stringify({ texto, incompleto: data.stop_reason === "max_tokens" }), {
       headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (err) {

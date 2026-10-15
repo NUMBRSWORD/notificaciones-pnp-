@@ -26,6 +26,33 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   db: { schema: SUPABASE_SCHEMA },
 });
 
+// Llama a una función del servidor (Edge Function) con la misma respuesta que
+// supabase.functions.invoke, pero si falla, el error trae el motivo real que
+// envió el servidor ("La IA no devolvió...", "Debe iniciar sesión", etc.) en
+// vez del genérico "Edge Function returned a non-2xx status code".
+async function invocarFuncion(nombre, opciones) {
+  const respuesta = await supabase.functions.invoke(nombre, opciones);
+  if (!respuesta.error) return respuesta;
+  const original = respuesta.error;
+  let detalle = "";
+  const contexto = original?.context;
+  if (contexto?.clone) {
+    try {
+      const cuerpo = await contexto.clone().json();
+      detalle = cuerpo?.error || cuerpo?.message || "";
+    } catch (_) {
+      try { detalle = (await contexto.clone().text()).slice(0, 300); } catch (_) { /* sin cuerpo legible */ }
+    }
+  }
+  const estado = Number(contexto?.status) || 0;
+  if (!detalle && [504, 546].includes(estado)) detalle = "El servidor tardó demasiado en responder. Intente de nuevo; si el documento es largo, pruebe con menos páginas.";
+  if (!detalle) return respuesta;
+  const error = new Error(detalle);
+  error.context = contexto;
+  error.original = original;
+  return { ...respuesta, error };
+}
+
 // ---------- Lectura de PDF/imagen (texto seleccionable o IA con visión) ----------
 // Antes esto usaba tesseract.js (OCR genérico corriendo en el navegador):
 // lentísimo en documentos largos (minutos) y con errores frecuentes en
@@ -33,7 +60,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 // tiene texto seleccionable, cada página se manda como imagen a la función
 // "extraer-texto-vision" (Claude con visión) -- mucho más preciso, y corre
 // en el servidor en vez de trabar el navegador del oficial.
-const PAGINAS_POR_LOTE_VISION = 4;
+// Una página por solicitud: con varias páginas densas la respuesta de la IA se
+// cortaba (límite de salida) y la función respondía "formato no reconocible".
+const PAGINAS_POR_LOTE_VISION = 1;
 
 function canvasABase64Jpeg(canvas) {
   const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
@@ -62,7 +91,7 @@ async function transcribirPaginasConIA(paginas, onEstado) {
     onEstado?.(paginas.length > 1
       ? `Transcribiendo con IA: página${hasta > desde ? "s" : ""} ${desde}${hasta > desde ? `-${hasta}` : ""} de ${paginas.length}...`
       : "Transcribiendo la imagen con IA...");
-    const { data, error } = await supabase.functions.invoke("extraer-texto-vision", {
+    const { data, error } = await invocarFuncion("extraer-texto-vision", {
       body: { paginas: lotes[i] },
     });
     if (error) throw error;
@@ -94,7 +123,7 @@ function textoPdfPareceIncompleto(textosPorPagina) {
 
 // Renderiza y transcribe por lotes para que un descargo de muchas páginas no
 // acumule todas las imágenes en memoria del navegador antes de llamar a la IA.
-async function transcribirPdfConVisionIA(pdf, onEstado) {
+async function transcribirPdfConVisionIA(pdf, onEstado, textosPorPagina = []) {
   const textos = [];
   for (let inicio = 1; inicio <= pdf.numPages; inicio += PAGINAS_POR_LOTE_VISION) {
     const fin = Math.min(pdf.numPages, inicio + PAGINAS_POR_LOTE_VISION - 1);
@@ -108,8 +137,17 @@ async function transcribirPdfConVisionIA(pdf, onEstado) {
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
       paginas.push({ data: canvasABase64Jpeg(canvas), mediaType: "image/jpeg" });
     }
-    onEstado?.(`Leyendo con IA las páginas ${inicio}-${fin} de ${pdf.numPages}...`);
-    textos.push(await transcribirPaginasConIA(paginas));
+    onEstado?.(inicio === fin ? `Leyendo con IA la página ${inicio} de ${pdf.numPages}...` : `Leyendo con IA las páginas ${inicio}-${fin} de ${pdf.numPages}...`);
+    try {
+      textos.push(await transcribirPaginasConIA(paginas));
+    } catch (error) {
+      // Si la IA falla con estas páginas, se usa el texto que el propio PDF
+      // trae (muchos escaneos ya vienen con OCR) en vez de abortar todo.
+      const propio = textosPorPagina.slice(inicio - 1, fin).join("\n").trim();
+      if (!propio) throw error;
+      console.warn(`La IA no pudo leer las páginas ${inicio}-${fin}; se usa el texto del PDF:`, error);
+      textos.push(propio);
+    }
   }
   return textos.join("\n\n");
 }
@@ -130,7 +168,7 @@ async function extractPdfText(file, onEstado) {
   // el documento real, no solo el encabezado que alcanzó a extraer el PDF.
   if (textoPdfPareceIncompleto(textosPorPagina)) {
     onEstado?.("El texto interno del PDF parece incompleto. Revisando todas las páginas con IA...");
-    text = await transcribirPdfConVisionIA(pdf, onEstado);
+    text = await transcribirPdfConVisionIA(pdf, onEstado, textosPorPagina);
   }
   return text;
 }
@@ -301,7 +339,7 @@ window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault
 $("btnInstalarApp")?.addEventListener("click", async () => { if (!avisoInstalacionDiferido) return; avisoInstalacionDiferido.prompt(); await avisoInstalacionDiferido.userChoice; avisoInstalacionDiferido = null; $("btnInstalarApp")?.classList.add("hidden"); });
 $("btnActivarAlertas")?.addEventListener("click", activarAlertasMovil);
 $("btnMostrarPanelMovil")?.addEventListener("click", () => actualizarPanelMovil(false));
-async function enviarAlertaSancionPendiente(casoId) { try { const { error } = await supabase.functions.invoke("rapid-action", { body: { casoId } }); if (error) throw error; } catch (error) { console.error("No se pudo enviar la alerta móvil:", error); } }
+async function enviarAlertaSancionPendiente(casoId) { try { const { error } = await invocarFuncion("rapid-action", { body: { casoId } }); if (error) throw error; } catch (error) { console.error("No se pudo enviar la alerta móvil:", error); } }
 // ---------- Tema claro/oscuro ----------
 function actualizarIconoTema() {
   const claro = document.documentElement.getAttribute("data-theme") === "light";
@@ -838,7 +876,7 @@ $("btnRedactarHechoIA").addEventListener("click", async () => {
       puestoRol = (await buscarPuestoEnRol()) || "";
       statusEl.textContent = texto ? "Redactando la descripción del hecho con IA..." : "Mejorando la redacción con IA...";
     }
-    const { data, error } = await supabase.functions.invoke("redactar-hecho-imputacion", {
+    const { data, error } = await invocarFuncion("redactar-hecho-imputacion", {
       body: {
         investigadoCompleto: `${$("fGrado").value.trim()} ${$("fNombres").value.trim()} ${$("fApellidos").value.trim()}`.trim(),
         fechaHecho: $("fFechaHecho").value,
@@ -886,7 +924,7 @@ $("btnSugerirCodigoIA").addEventListener("click", async () => {
   sugEl.textContent = "Consultando el Anexo I con IA...";
   try {
     const catalogo = Object.entries(ANEXO_I).map(([codigo, inf]) => ({ codigo, ...inf }));
-    const { data, error } = await supabase.functions.invoke("sugerir-codigo-infraccion", {
+    const { data, error } = await invocarFuncion("sugerir-codigo-infraccion", {
       body: { descripcionHecho: hecho, catalogo },
     });
     if (error) throw error;
@@ -1373,7 +1411,7 @@ async function conectarGoogleDrive() {
   if (!boton) return;
   ocuparBoton(boton, true, "Preparando conexión...");
   try {
-    const { data, error } = await supabase.functions.invoke("google-drive-conectar", { body: {} });
+    const { data, error } = await invocarFuncion("google-drive-conectar", { body: {} });
     if (error) throw error;
     if (!data?.authorizationUrl) throw new Error(data?.error || "No se recibió el enlace de autorización de Google.");
     window.location.assign(data.authorizationUrl);
@@ -1384,7 +1422,7 @@ async function conectarGoogleDrive() {
 }
 
 async function respaldarArchivoEnDrive(expedienteId, tipo, silencioso = false) {
-  const { data, error } = await supabase.functions.invoke("respaldar-expediente-drive", { body: { expedienteId, tipo } });
+  const { data, error } = await invocarFuncion("respaldar-expediente-drive", { body: { expedienteId, tipo } });
   if (error || data?.error) {
     const mensaje = data?.error || error?.message || "No se pudo copiar el archivo a Drive.";
     if (!silencioso) alert(mensaje);
@@ -1644,7 +1682,7 @@ async function revisarConsistenciaImputacion(caso) {
       }
     }
     const infraccion = getInfraccion(caso.codigo_infraccion);
-    const { data, error } = await supabase.functions.invoke("revisar-documento-ia", {
+    const { data, error } = await invocarFuncion("revisar-documento-ia", {
       body: {
         tipo: "imputacion",
         codigoInfraccion: normalizarCodigoInfraccion(caso.codigo_infraccion),
@@ -1726,7 +1764,7 @@ async function generarResumenEjecutivo() {
     // "E01", "E02"… y los nombres se vuelven a poner solo en este navegador
     // (Ley 29733, minimización y transferencia fuera del país).
     const { casos, mapa: nombresPorAlias } = seudonimizarInvestigados(construirResumenEstadoCasos());
-    const { data, error } = await supabase.functions.invoke("generar-resumen-casos", {
+    const { data, error } = await invocarFuncion("generar-resumen-casos", {
       body: { fechaHoy: hoyLima(), casos },
     });
     if (error) throw error;
@@ -1781,7 +1819,7 @@ $("asistenteForm").addEventListener("submit", async (e) => {
   ocuparBoton(submitBtn, true, "Consultando...");
   try {
     const directivas = directivasParaIA(state.directivas.length ? state.directivas : await listarDirectivas(supabase));
-    const { data, error } = await supabase.functions.invoke("asistente-normativa", {
+    const { data, error } = await invocarFuncion("asistente-normativa", {
       body: {
         catalogo: CATALOGO_ASISTENTE,
         directivas,
@@ -2616,7 +2654,7 @@ function dividirDescargoEnBloques(texto, limite = CARACTERES_POR_BLOQUE_DESCARGO
 }
 
 async function invocarAnalisisDescargoIA(body) {
-  const { data, error } = await supabase.functions.invoke("analizar-descargo-sancion", { body });
+  const { data, error } = await invocarFuncion("analizar-descargo-sancion", { body });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data || {};
@@ -2756,7 +2794,7 @@ async function verificarNotificacionOrdenIA(caso) {
     statusEl.textContent = "Comprobando los documentos del legajo con IA...";
     const infraccion = getInfraccion(caso.codigo_infraccion);
     const sancionImpuesta = caso.sancion_tercio_label === "amonestacion" ? "amonestación" : `${caso.sancion_tercio_label || ""} días de Sanción Simple`.trim();
-    const { data, error } = await supabase.functions.invoke("revisar-documento-ia", {
+    const { data, error } = await invocarFuncion("revisar-documento-ia", {
       body: {
         tipo: "expediente_completo",
         investigadoCompleto: nombreInvestigadoVisible(caso, true),
@@ -3187,7 +3225,7 @@ async function ubicarEnRol(texto, { apellidos, nombres }, fecha) {
 }
 
 async function extraerPuestoRolIA(texto, persona, fecha) {
-  const { data, error } = await supabase.functions.invoke("extraer-puesto-rol", { body: { texto, persona, fecha } });
+  const { data, error } = await invocarFuncion("extraer-puesto-rol", { body: { texto, persona, fecha } });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data;
