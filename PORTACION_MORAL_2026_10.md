@@ -8,6 +8,12 @@ La web publicada **funciona igual aunque todavía no se ejecuten los SQL ni se
 vuelvan a desplegar las funciones**: cada mejora que depende del servidor se
 apaga sola y dice qué falta. Lo que sigue activa todo.
 
+> **Estado (15-oct-2026): ya aplicado.** Se ejecutó `ACTIVAR_TODO_2026_10.sql`
+> (los 4 SQL) en el proyecto `lymoicdeexusnjdjzfid` y se redesplegaron las 8
+> funciones de IA (protegidas con sesión: sin ella responden 401). Se guardó un
+> respaldo de las versiones anteriores de las funciones antes de reemplazarlas.
+> No hace falta volver a hacerlo.
+
 ## Qué incluye
 
 | Mejora | Dónde | Necesita servidor |
