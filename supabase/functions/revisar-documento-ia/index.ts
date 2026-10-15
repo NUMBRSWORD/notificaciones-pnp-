@@ -63,6 +63,33 @@ function buildUserMessageExpediente(input: Record<string, unknown>): string {
   ].join("\n\n");
 }
 
+
+// Salida estructurada: la IA llena esta "herramienta" con campos definidos en
+// vez de escribir JSON a mano. Antes, si agregaba un comentario, escribía otra
+// cosa o la respuesta se cortaba, fallaba con "formato no reconocible".
+const HERRAMIENTA = {
+  name: "entregar_resultado",
+  description: "Entrega el resultado de la revisión del documento.",
+  input_schema: {"type": "object", "properties": {"consistente": {"type": "boolean"}, "presentes": {"type": "array", "items": {"type": "string"}}, "faltantes": {"type": "array", "items": {"type": "string"}}, "observaciones": {"type": "array", "items": {"type": "string"}}, "fecha_detectada": {"type": ["string", "null"], "description": "YYYY-MM-DD o null"}}, "required": ["consistente", "observaciones"]},
+};
+
+// Lee lo que entregó la IA. Si por algo no usó la herramienta, se intenta el
+// JSON escrito como texto (formato anterior).
+function leerSalidaIA(data: { content?: Array<{ type?: string; name?: string; input?: unknown; text?: string }>; stop_reason?: string }): { salida: Record<string, unknown> | null; error: string } {
+  const bloques = data?.content || [];
+  const uso = bloques.find((b) => b?.type === "tool_use" && b?.name === HERRAMIENTA.name);
+  if (uso?.input && typeof uso.input === "object") return { salida: uso.input as Record<string, unknown>, error: "" };
+  const texto = bloques.filter((b) => b?.type === "text").map((b) => b.text || "").join("");
+  const m = texto.match(/\{[\s\S]*\}/);
+  if (m) { try { return { salida: JSON.parse(m[0]), error: "" }; } catch (_) { /* sigue abajo */ } }
+  return {
+    salida: null,
+    error: data?.stop_reason === "max_tokens"
+      ? "La respuesta de la IA se cortó por ser muy extensa. Intente de nuevo o con menos texto."
+      : "La IA no devolvió el resultado esperado. Intente de nuevo.",
+  };
+}
+
 Deno.serve(async (req: Request) => {
   const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -78,14 +105,13 @@ Deno.serve(async (req: Request) => {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: tipo === "expediente_completo" ? 1500 : 1000, system, messages: [{ role: "user", content: userMessage }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: tipo === "expediente_completo" ? 3000 : 2000, system, tools: [HERRAMIENTA], tool_choice: { type: "tool", name: HERRAMIENTA.name }, messages: [{ role: "user", content: userMessage }] }),
     });
     if (!resp.ok) return new Response(JSON.stringify({ error: `Error de la API de IA: ${await resp.text()}` }), { status: 502, headers: { ...cors, "Content-Type": "application/json" } });
     const data = await resp.json();
-    const text = (data.content || []).filter((b: { type?: string }) => b.type === "text").map((b: { text?: string }) => b.text || "").join("");
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return new Response(JSON.stringify({ error: "La IA no devolvió un formato reconocible. Intente de nuevo." }), { status: 502, headers: { ...cors, "Content-Type": "application/json" } });
-    return new Response(JSON.stringify(JSON.parse(match[0])), { headers: { ...cors, "Content-Type": "application/json" } });
+    const { salida, error: errorSalida } = leerSalidaIA(data);
+    if (!salida) return new Response(JSON.stringify({ error: errorSalida }), { status: 502, headers: { ...cors, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(salida), { headers: { ...cors, "Content-Type": "application/json" } });
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
   }

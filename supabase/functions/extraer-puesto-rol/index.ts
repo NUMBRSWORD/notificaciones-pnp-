@@ -45,6 +45,33 @@ No inventes. Si la persona no aparece, {"encontrado": false, "puesto": null, "si
 
 Responde ÚNICAMENTE con ese objeto JSON, sin texto antes ni después.`;
 
+
+// Salida estructurada: la IA llena esta "herramienta" con campos definidos en
+// vez de escribir JSON a mano. Antes, si agregaba un comentario, escribía otra
+// cosa o la respuesta se cortaba, fallaba con "formato no reconocible".
+const HERRAMIENTA = {
+  name: "entregar_resultado",
+  description: "Entrega lo que dice el rol sobre la persona buscada.",
+  input_schema: {"type": "object", "properties": {"encontrado": {"type": "boolean"}, "puesto": {"type": ["string", "null"]}, "fecha_rol_inicio": {"type": ["string", "null"], "description": "YYYY-MM-DD o null"}, "fecha_rol_fin": {"type": ["string", "null"], "description": "YYYY-MM-DD o null"}, "situacion": {"type": ["string", "null"], "enum": ["servicio", "falto", "descanso_medico", "vacaciones", "permiso", "franco", "suspension", "otro", null]}, "detalle_novedad": {"type": ["string", "null"]}}, "required": ["encontrado", "puesto", "situacion"]},
+};
+
+// Lee lo que entregó la IA. Si por algo no usó la herramienta, se intenta el
+// JSON escrito como texto (formato anterior).
+function leerSalidaIA(data: { content?: Array<{ type?: string; name?: string; input?: unknown; text?: string }>; stop_reason?: string }): { salida: Record<string, unknown> | null; error: string } {
+  const bloques = data?.content || [];
+  const uso = bloques.find((b) => b?.type === "tool_use" && b?.name === HERRAMIENTA.name);
+  if (uso?.input && typeof uso.input === "object") return { salida: uso.input as Record<string, unknown>, error: "" };
+  const texto = bloques.filter((b) => b?.type === "text").map((b) => b.text || "").join("");
+  const m = texto.match(/\{[\s\S]*\}/);
+  if (m) { try { return { salida: JSON.parse(m[0]), error: "" }; } catch (_) { /* sigue abajo */ } }
+  return {
+    salida: null,
+    error: data?.stop_reason === "max_tokens"
+      ? "La respuesta de la IA se cortó por ser muy extensa. Intente de nuevo o con menos texto."
+      : "La IA no devolvió el resultado esperado. Intente de nuevo.",
+  };
+}
+
 Deno.serve(async (req) => {
   const headers = cors(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers });
@@ -56,14 +83,13 @@ Deno.serve(async (req) => {
     const respuesta = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 1500, system: SYSTEM, messages: [{ role: "user", content: `Fecha del hecho: ${fecha}\nEfectivo a ubicar: ${persona}\n\nTEXTO DEL ROL DE SERVICIO:\n${String(texto).slice(0, 120000)}` }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 1500, system: SYSTEM, tools: [HERRAMIENTA], tool_choice: { type: "tool", name: HERRAMIENTA.name }, messages: [{ role: "user", content: `Fecha del hecho: ${fecha}\nEfectivo a ubicar: ${persona}\n\nTEXTO DEL ROL DE SERVICIO:\n${String(texto).slice(0, 120000)}` }] }),
     });
     if (!respuesta.ok) return new Response(JSON.stringify({ error: "La IA no pudo procesar el rol." }), { status: 502, headers: { ...headers, "Content-Type": "application/json" } });
     const data = await respuesta.json();
-    const salida = (data.content || []).map((b: { text?: string }) => b.text || "").join("");
-    const match = salida.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("La IA no devolvió un formato reconocible.");
-    return new Response(JSON.stringify(JSON.parse(match[0])), { headers: { ...headers, "Content-Type": "application/json" } });
+    const { salida, error: errorSalida } = leerSalidaIA(data);
+    if (!salida) return new Response(JSON.stringify({ error: errorSalida }), { status: 502, headers: { ...headers, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(salida), { headers: { ...headers, "Content-Type": "application/json" } });
   } catch (error) {
     return new Response(JSON.stringify({ error: String(error?.message || error) }), { status: 500, headers: { ...headers, "Content-Type": "application/json" } });
   }

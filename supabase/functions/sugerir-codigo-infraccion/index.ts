@@ -41,6 +41,33 @@ function buildUserMessage(input: Record<string, unknown>): string {
   ].filter(Boolean).join("\n\n");
 }
 
+
+// Salida estructurada: la IA llena esta "herramienta" con campos definidos en
+// vez de escribir JSON a mano. Antes, si agregaba un comentario, escribía otra
+// cosa o la respuesta se cortaba, fallaba con "formato no reconocible".
+const HERRAMIENTA = {
+  name: "entregar_resultado",
+  description: "Entrega el código sugerido del Anexo I, alternativas y la justificación.",
+  input_schema: {"type": "object", "properties": {"codigo_sugerido": {"type": ["string", "null"]}, "alternativas": {"type": "array", "items": {"type": "string"}}, "justificacion": {"type": "string"}}, "required": ["codigo_sugerido", "alternativas", "justificacion"]},
+};
+
+// Lee lo que entregó la IA. Si por algo no usó la herramienta, se intenta el
+// JSON escrito como texto (formato anterior).
+function leerSalidaIA(data: { content?: Array<{ type?: string; name?: string; input?: unknown; text?: string }>; stop_reason?: string }): { salida: Record<string, unknown> | null; error: string } {
+  const bloques = data?.content || [];
+  const uso = bloques.find((b) => b?.type === "tool_use" && b?.name === HERRAMIENTA.name);
+  if (uso?.input && typeof uso.input === "object") return { salida: uso.input as Record<string, unknown>, error: "" };
+  const texto = bloques.filter((b) => b?.type === "text").map((b) => b.text || "").join("");
+  const m = texto.match(/\{[\s\S]*\}/);
+  if (m) { try { return { salida: JSON.parse(m[0]), error: "" }; } catch (_) { /* sigue abajo */ } }
+  return {
+    salida: null,
+    error: data?.stop_reason === "max_tokens"
+      ? "La respuesta de la IA se cortó por ser muy extensa. Intente de nuevo o con menos texto."
+      : "La IA no devolvió el resultado esperado. Intente de nuevo.",
+  };
+}
+
 Deno.serve(async (req: Request) => {
   const cors = {
     "Access-Control-Allow-Origin": "*",
@@ -70,8 +97,10 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1000,
+        max_tokens: 1500,
         system: SYSTEM_PROMPT,
+        tools: [HERRAMIENTA],
+        tool_choice: { type: "tool", name: HERRAMIENTA.name },
         messages: [{ role: "user", content: buildUserMessage(input) }],
       }),
     });
@@ -85,17 +114,15 @@ Deno.serve(async (req: Request) => {
     }
 
     const data = await resp.json();
-    const text = (data.content || []).map((b: { text?: string }) => b.text || "").join("");
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) {
-      return new Response(JSON.stringify({ error: "La IA no devolvió un formato reconocible. Intente de nuevo." }), {
+    const { salida, error: errorSalida } = leerSalidaIA(data);
+    if (!salida) {
+      return new Response(JSON.stringify({ error: errorSalida }), {
         status: 502,
         headers: { ...cors, "Content-Type": "application/json" },
       });
     }
-    const parsed = JSON.parse(match[0]);
 
-    return new Response(JSON.stringify(parsed), {
+    return new Response(JSON.stringify(salida), {
       headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (err) {
